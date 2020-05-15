@@ -97,13 +97,6 @@
 
 	apb@80000000 {
 		apbh@80000000 {
-			nand-controller@8000c000 {
-				pinctrl-names = "default";
-				pinctrl-0 = <&gpmi_pins_a &gpmi_status_cfg
-					     &gpmi_pins_evk>;
-				status = "okay";
-			};
-
 			ssp0: spi@80010000 {
 				compatible = "fsl,imx28-mmc";
 				pinctrl-names = "default";
@@ -117,25 +110,11 @@
 
 			ssp1: spi@80012000 {
 				compatible = "fsl,imx28-mmc";
-				bus-width = <8>;
-				wp-gpios = <&gpio0 28 0>;
-			};
-
-			ssp2: spi@80014000 {
-				#address-cells = <1>;
-				#size-cells = <0>;
-				compatible = "fsl,imx28-spi";
 				pinctrl-names = "default";
-				pinctrl-0 = <&spi2_pins_a>;
+				pinctrl-0 = <&mmc1_4bit_pins_a
+					&mmc1_cd_cfg &mmc1_sck_cfg>;
+				bus-width = <4>;
 				status = "okay";
-
-				flash: flash@0 {
-					#address-cells = <1>;
-					#size-cells = <1>;
-					compatible = "sst,sst25vf016b", "jedec,spi-nor";
-					spi-max-frequency = <40000000>;
-					reg = <0>;
-				};
 			};
 
 			pinctrl@80018000 {
@@ -169,17 +148,6 @@
 					fsl,pull-up = <MXS_PULL_DISABLE>;
 				};
 
-				gpmi_pins_evk: gpmi-nand-evk@0 {
-					reg = <0>;
-					fsl,pinmux-ids = <
-						MX28_PAD_GPMI_CE1N__GPMI_CE1N
-						MX28_PAD_GPMI_RDY1__GPMI_READY1
-					>;
-					fsl,drive-strength = <MXS_DRIVE_4mA>;
-					fsl,voltage = <MXS_VOLTAGE_HIGH>;
-					fsl,pull-up = <MXS_PULL_DISABLE>;
-				};
-
 				lcdif_pins_evk: lcdif-evk@0 {
 					reg = <0>;
 					fsl,pinmux-ids = <
@@ -205,20 +173,6 @@
 						remote-endpoint = <&panel_in>;
 					};
 				};
-			};
-
-			can0: can@80032000 {
-				pinctrl-names = "default";
-				pinctrl-0 = <&can0_pins_a>;
-				xceiver-supply = <&reg_can_3v3>;
-				status = "okay";
-			};
-
-			can1: can@80034000 {
-				pinctrl-names = "default";
-				pinctrl-0 = <&can1_pins_a>;
-				xceiver-supply = <&reg_can_3v3>;
-				status = "okay";
 			};
 		};
 
@@ -257,36 +211,23 @@
 					VDDIO-supply = <&reg_3p3v>;
 					clocks = <&saif0>;
 				};
+			};
 
-				at24@51 {
-					compatible = "atmel,24c32";
-					pagesize = <32>;
-					reg = <0x51>;
-				};
+			i2c1: i2c@8005a000 {
+				pinctrl-names = "default";
+				pinctrl-0 = <&i2c1_pins_a>;
+				status = "okay";
 			};
 
 			pwm: pwm@80064000 {
 				pinctrl-names = "default";
 				pinctrl-0 = <&pwm2_pins_a>;
-				status = "okay";
+				status = "disabled";
 			};
 
 			duart: serial@80074000 {
 				pinctrl-names = "default";
-				pinctrl-0 = <&duart_pins_a>;
-				status = "okay";
-			};
-
-			auart0: serial@8006a000 {
-				pinctrl-names = "default";
-				pinctrl-0 = <&auart0_pins_a>;
-				uart-has-rtscts;
-				status = "okay";
-			};
-
-			auart3: serial@80070000 {
-				pinctrl-names = "default";
-				pinctrl-0 = <&auart3_pins_a>;
+				pinctrl-0 = <&duart_pins_b>;
 				status = "okay";
 			};
 
@@ -310,24 +251,7 @@
 
 		usb1: usb@80090000 {
 			vbus-supply = <&reg_usb1_vbus>;
-			status = "okay";
-		};
-
-		mac0: ethernet@800f0000 {
-			phy-mode = "rmii";
-			pinctrl-names = "default";
-			pinctrl-0 = <&mac0_pins_a>;
-			phy-supply = <&reg_fec_3v3>;
-			phy-reset-gpios = <&gpio4 13 GPIO_ACTIVE_LOW>;
-			phy-reset-duration = <100>;
-			status = "okay";
-		};
-
-		mac1: ethernet@800f4000 {
-			phy-mode = "rmii";
-			pinctrl-names = "default";
-			pinctrl-0 = <&mac1_pins_a>;
-			status = "okay";
+			status = "disabled";
 		};
 	};
 
@@ -344,17 +268,16 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&led_pin_gpio3_5>;
 
-		user {
-			label = "Heartbeat";
+		backlight_static {
 			gpios = <&gpio3 5 0>;
-			linux,default-trigger = "heartbeat";
+			default-state = "on";
 		};
 	};
 
 	backlight_display: backlight {
 		compatible = "pwm-backlight";
-		pwms = <&pwm 2 5000000>;
+		pwms = <&pwm 0 5000000>;
 		brightness-levels = <0 4 8 16 32 64 128 255>;
-		default-brightness-level = <6>;
+		default-brightness-level = <4>;  //Set 4 for identification on probing
 	};
 };
