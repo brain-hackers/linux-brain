@@ -110,25 +110,11 @@
 
 			ssp1: spi@80012000 {
 				compatible = "fsl,imx28-mmc";
-				bus-width = <8>;
-				wp-gpios = <&gpio0 28 0>;
-			};
-
-			ssp2: spi@80014000 {
-				#address-cells = <1>;
-				#size-cells = <0>;
-				compatible = "fsl,imx28-spi";
 				pinctrl-names = "default";
-				pinctrl-0 = <&spi2_pins_a>;
+				pinctrl-0 = <&mmc1_4bit_pins_a
+					&mmc1_cd_cfg &mmc1_sck_cfg>;
+				bus-width = <4>;
 				status = "okay";
-
-				flash: m25p80@0 {
-					#address-cells = <1>;
-					#size-cells = <1>;
-					compatible = "sst,sst25vf016b", "jedec,spi-nor";
-					spi-max-frequency = <40000000>;
-					reg = <0>;
-				};
 			};
 
 			pinctrl@80018000 {
