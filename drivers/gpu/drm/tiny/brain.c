@@ -499,12 +499,11 @@ static int brain_probe(struct platform_device *pdev)
 
 	ili->enabled = false;
 
-	ili->clk_lcdif = devm_clk_get(drm->dev, "lcdif");
+	ili->clk_lcdif = devm_clk_get(drm->dev, NULL);
 	if (IS_ERR(ili->clk_lcdif)) {
 		drm_dev_put(drm);
 		return PTR_ERR(ili->clk_lcdif);
 	}
-
 
 	drm_mode_config_init(drm);
 	drm->mode_config.funcs = &brain_mode_config_funcs;
