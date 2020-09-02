@@ -47,6 +47,18 @@ config TINYDRM_ILI9341
 
 	  If M is selected the module will be called ili9341.
 
+config TINYDRM_BRAIN
+	tristate "DRM support for ILI9805 display panels on Sharp Brain"
+	depends on DRM
+	select DRM_KMS_HELPER
+	select DRM_KMS_CMA_HELPER
+	select BACKLIGHT_CLASS_DEVICE
+	help
+	  DRM driver for the following Ilitek ILI9805 panels:
+	  * Sharp Brain 800x480 TFT
+
+	  If M is selected the module will be called brain.
+
 config TINYDRM_MI0283QT
 	tristate "DRM support for MI0283QT"
 	depends on DRM && SPI
