@@ -82,19 +82,6 @@
 		regulator-max-microvolt = <5000000>;
 	};
 
-	panel {
-		compatible = "sii,43wvf1g";
-		backlight = <&backlight_display>;
-		dvdd-supply = <&reg_lcd_3v3>;
-		avdd-supply = <&reg_lcd_5v>;
-
-		port {
-			panel_in: endpoint {
-				remote-endpoint = <&display_out>;
-			};
-		};
-	};
-
 	apb@80000000 {
 		apbh@80000000 {
 			ssp0: spi@80010000 {
@@ -119,17 +106,26 @@
 
 			pinctrl@80018000 {
 				pinctrl-names = "default";
-				pinctrl-0 = <&hog_pins_a>;
+				pinctrl-0 = <&hog_pins_3v3_pullup &hog_pins_3v3_nopull &hog_pins_1v8_nopull>;
 
-				hog_pins_a: hog@0 {
+				hog_pins_3v3_pullup: hog@0 {
 					reg = <0>;
+					fsl,pinmux-ids = <
+						MX28_PAD_GPMI_CLE__GPIO_0_27
+					>;
+					fsl,drive-strength = <MXS_DRIVE_4mA>;
+					fsl,voltage = <MXS_VOLTAGE_HIGH>;
+					fsl,pull-up = <MXS_PULL_ENABLE>;
+				};
+
+				hog_pins_3v3_nopull: hog@1 {
+					reg = <1>;
 					fsl,pinmux-ids = <
 						MX28_PAD_SSP1_CMD__GPIO_2_13
 						MX28_PAD_SSP1_DATA3__GPIO_2_15
 						MX28_PAD_ENET0_RX_CLK__GPIO_4_13
 						MX28_PAD_SSP1_SCK__GPIO_2_12
 						MX28_PAD_PWM3__GPIO_3_28
-						MX28_PAD_LCD_RESET__GPIO_3_30
 						MX28_PAD_AUART2_RX__GPIO_3_8
 						MX28_PAD_AUART2_TX__GPIO_3_9
 					>;
@@ -138,10 +134,21 @@
 					fsl,pull-up = <MXS_PULL_DISABLE>;
 				};
 
-				led_pin_gpio3_5: led_gpio3_5@0 {
+				hog_pins_1v8_nopull: hog@2 {
+					reg = <2>;
+					fsl,pinmux-ids = <
+						MX28_PAD_GPMI_ALE__GPIO_0_26
+					>;
+					fsl,drive-strength = <MXS_DRIVE_4mA>;
+					fsl,voltage = <MXS_VOLTAGE_LOW>;
+					fsl,pull-up = <MXS_PULL_DISABLE>;
+				};
+
+				lcd_backlight: pwm@0 {
 					reg = <0>;
 					fsl,pinmux-ids = <
-						MX28_PAD_AUART1_TX__GPIO_3_5
+						MX28_PAD_AUART1_RX__PWM_0
+						MX28_PAD_AUART1_TX__PWM_1
 					>;
 					fsl,drive-strength = <MXS_DRIVE_4mA>;
 					fsl,voltage = <MXS_VOLTAGE_HIGH>;
@@ -151,28 +158,44 @@
 				lcdif_pins_evk: lcdif-evk@0 {
 					reg = <0>;
 					fsl,pinmux-ids = <
-						MX28_PAD_LCD_RD_E__LCD_VSYNC
-						MX28_PAD_LCD_WR_RWN__LCD_HSYNC
-						MX28_PAD_LCD_RS__LCD_DOTCLK
-						MX28_PAD_LCD_CS__LCD_ENABLE
+						MX28_PAD_LCD_D00__LCD_D0
+						MX28_PAD_LCD_D01__LCD_D1
+						MX28_PAD_LCD_D02__LCD_D2
+						MX28_PAD_LCD_D03__LCD_D3
+						MX28_PAD_LCD_D04__LCD_D4
+						MX28_PAD_LCD_D05__LCD_D5
+						MX28_PAD_LCD_D06__LCD_D6
+						MX28_PAD_LCD_D07__LCD_D7
+						MX28_PAD_LCD_D08__LCD_D8
+						MX28_PAD_LCD_D09__LCD_D9
+						MX28_PAD_LCD_D10__LCD_D10
+						MX28_PAD_LCD_D11__LCD_D11
+						MX28_PAD_LCD_D12__LCD_D12
+						MX28_PAD_LCD_D13__LCD_D13
+						MX28_PAD_LCD_D14__LCD_D14
+						MX28_PAD_LCD_D15__LCD_D15
+						MX28_PAD_LCD_RD_E__LCD_RD_E
+						MX28_PAD_LCD_WR_RWN__LCD_WR_RWN
+						MX28_PAD_LCD_RS__LCD_RS
+						MX28_PAD_LCD_CS__LCD_CS
+						MX28_PAD_LCD_RESET__LCD_VSYNC
 					>;
 					fsl,drive-strength = <MXS_DRIVE_4mA>;
-					fsl,voltage = <MXS_VOLTAGE_HIGH>;
+					fsl,voltage = <MXS_VOLTAGE_LOW>;
 					fsl,pull-up = <MXS_PULL_DISABLE>;
 				};
 			};
 
 			lcdif@80030000 {
+				compatible = "sharp,brainlcd";
 				pinctrl-names = "default";
-				pinctrl-0 = <&lcdif_24bit_pins_a
-					     &lcdif_pins_evk>;
+				pinctrl-0 = <&lcdif_pins_evk>;
 				status = "okay";
 
-				port {
-					display_out: endpoint {
-						remote-endpoint = <&panel_in>;
-					};
-				};
+				sharp,en-gpios =
+					<&gpio0 26 GPIO_ACTIVE_HIGH>,
+					<&gpio0 27 GPIO_ACTIVE_HIGH>,
+					<&gpio4 16 GPIO_ACTIVE_HIGH>;
 			};
 		};
 
@@ -221,8 +244,8 @@
 
 			pwm: pwm@80064000 {
 				pinctrl-names = "default";
-				pinctrl-0 = <&pwm2_pins_a>;
-				status = "disabled";
+				pinctrl-0 = <&lcd_backlight>;
+				status = "okay";
 			};
 
 			duart: serial@80074000 {
@@ -246,6 +269,7 @@
 			pinctrl-names = "default";
 			pinctrl-0 = <&usb0_id_pins_a>;
 			vbus-supply = <&reg_usb0_vbus>;
+			dr_mode = "host";
 			status = "okay";
 		};
 
@@ -263,20 +287,9 @@
 		audio-codec = <&sgtl5000>;
 	};
 
-	leds {
-		compatible = "gpio-leds";
-		pinctrl-names = "default";
-		pinctrl-0 = <&led_pin_gpio3_5>;
-
-		backlight_static {
-			gpios = <&gpio3 5 0>;
-			default-state = "on";
-		};
-	};
-
 	backlight_display: backlight {
 		compatible = "pwm-backlight";
-		pwms = <&pwm 0 5000000>;
+		pwms = <&pwm 0 50000>, <&pwm 1 50000>;
 		brightness-levels = <0 4 8 16 32 64 128 255>;
 		default-brightness-level = <4>;  //Set 4 for identification on probing
 	};
