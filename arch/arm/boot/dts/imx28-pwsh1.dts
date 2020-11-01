@@ -146,7 +146,7 @@
 					fsl,pull-up = <MXS_PULL_DISABLE>;
 				};
 
-				lcdif_pins_evk: lcdif-evk@0 {
+				lcdif_pins: lcdif@0 {
 					reg = <0>;
 					fsl,pinmux-ids = <
 						MX28_PAD_LCD_D00__LCD_D0
@@ -180,8 +180,15 @@
 			lcdif@80030000 {
 				compatible = "sharp,brainlcd";
 				pinctrl-names = "default";
-				pinctrl-0 = <&lcdif_pins_evk>;
+				pinctrl-0 = <&lcdif_pins>;
 				status = "okay";
+
+				sharp,lcd-width = <800>;
+				sharp,lcd-height = <480>;
+
+				sharp,mac-transpose;
+				sharp,mac-inversion;
+				sharp,mac-bgr;
 
 				sharp,en-gpios =
 					<&gpio0 26 GPIO_ACTIVE_HIGH>,
