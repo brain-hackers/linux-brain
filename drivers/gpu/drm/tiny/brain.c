@@ -41,26 +41,7 @@
 #define RESET_TIMEOUT 1000000
 #define TX_TIMEOUT 1000000
 
-#define ILI9805_FRMCTR1		0xb1
-#define ILI9805_DISCTRL		0xb6
-#define ILI9805_ETMOD		0xb7
-
-#define ILI9805_PWCTRL1		0xc0
-#define ILI9805_PWCTRL2		0xc1
-#define ILI9805_VMCTRL1		0xc5
-#define ILI9805_VMCTRL2		0xc7
-#define ILI9805_PWCTRLA		0xcb
-#define ILI9805_PWCTRLB		0xcf
-
-#define ILI9805_PGAMCTRL	0xe0
-#define ILI9805_NGAMCTRL	0xe1
-#define ILI9805_DTCTRLA		0xe8
-#define ILI9805_DTCTRLB		0xea
-#define ILI9805_PWRSEQ		0xed
-
-#define ILI9805_EN3GAM		0xf2
-#define ILI9805_PUMPCTRL	0xf7
-
+#define ILI9805_MADCTL_GS	BIT(0)
 #define ILI9805_MADCTL_BGR	BIT(3)
 #define ILI9805_MADCTL_MV	BIT(5)
 #define ILI9805_MADCTL_MX	BIT(6)
@@ -73,7 +54,6 @@ struct brain_drm_private {
 	bool enabled;
 
 	struct drm_simple_display_pipe pipe;
-	const struct drm_display_mode *mode;
 	struct drm_connector connector;
 	struct drm_panel *panel;
 };
@@ -122,30 +102,25 @@ static const struct {
 		{ 0x02, 1, 0 },
 	{ 0xbb, 0, 0 }, /* ? */
 		{ 0x14, 1, 0 }, { 0x55, 1, 0 },
-	{ 0x36, 0, 0 }, /* Memory Access Control */
-		{ 0x28, 1, 0 },
 	{ 0x3a, 0, 0 }, /* Interface Pixel Format */
 		{ 0x55, 1, 0 },
-	{ 0x21, 0, 0 }, /* Display Inversion On */
 	{ 0xb6, 0, 0 }, /* MCU/RGB Interface Select */
 		{ 0x01, 1, 0 }, { 0x80, 1, 0 }, { 0x8f, 1, 0 },
 	{ 0x44, 0, 0 }, /* Write Tear Scan Line? */
 		{ 0x00, 1, 0 }, { 0x00, 1, 0 },
 	{ 0x35, 0, 0 }, /* Tearing Effect Line On */
 		{ 0x00, 1, 0 },
-	{ 0x11, 0, 120 }, /* Sleep Out */
-	{ 0x29, 0, 20 }, /* Display On */
-	{ 0x2a, 0, 0 }, /* Column Address Set */
-		{ 0x00, 1, 0 }, { 0x00, 1, 0 }, { 0x03, 1, 0 }, { 0x1f, 1, 0 },
-	{ 0x2b, 0, 0 }, /* Page Address Set */
-		{ 0x00, 1, 0 }, { 0x00, 1, 0 }, { 0x01, 1, 0 }, { 0xdf, 1, 0 },
-	{ 0x2c, 0, 0 }, /* Memory Write*/
 };
 
 
-static struct brain_drm_private *pipe_to_brain_drm_private(struct drm_simple_display_pipe *pipe)
+static struct brain_drm_private *pipe_to_private(struct drm_simple_display_pipe *pipe)
 {
 	return container_of(pipe, struct brain_drm_private, pipe);
+}
+
+static struct brain_drm_private *connector_to_private(struct drm_connector *connector)
+{
+	return container_of(connector, struct brain_drm_private, connector);
 }
 
 static int brain_clear_poll(const void __iomem *addr, u32 mask, u32 timeout)
@@ -281,8 +256,9 @@ static void brain_enable(struct drm_simple_display_pipe *pipe,
 	struct drm_display_mode *m = &crtc_state->adjusted_mode;
 	int i, ret, idx;
 	u32 valid;
+	u8 mac = 0;
 
-	ili = pipe_to_brain_drm_private(pipe);
+	ili = pipe_to_private(pipe);
 	m = &ili->pipe.crtc.state->adjusted_mode;
 
 	if (!drm_dev_enter(pipe->crtc.dev, &idx))
@@ -320,6 +296,53 @@ static void brain_enable(struct drm_simple_display_pipe *pipe,
 		mdelay(lcd_regs[i].delay);
 	}
 
+	if (of_property_read_bool(ili->pdev->dev.of_node, "sharp,mac-flip-x")) {
+		mac |= ILI9805_MADCTL_MX;
+	}
+
+	if (of_property_read_bool(ili->pdev->dev.of_node, "sharp,mac-flip-y")) {
+		mac |= ILI9805_MADCTL_MY;
+	}
+
+	if (of_property_read_bool(ili->pdev->dev.of_node, "sharp,mac-flip-y-gs")) {
+		mac |= ILI9805_MADCTL_GS;
+	}
+
+	if (of_property_read_bool(ili->pdev->dev.of_node, "sharp,mac-transpose")) {
+		mac |= ILI9805_MADCTL_MV;
+	}
+
+	if (of_property_read_bool(ili->pdev->dev.of_node, "sharp,mac-bgr")) {
+		mac |= ILI9805_MADCTL_BGR;
+	}
+
+	brain_write_byte(ili, 0x36, 0); /* Memory Access Control */
+	brain_write_byte(ili, mac, 1);
+
+	if (of_property_read_bool(ili->pdev->dev.of_node, "sharp,mac-inversion")) {
+		brain_write_byte(ili, 0x21, 0); /* Display Inversion On */
+	}
+
+	brain_write_byte(ili, 0x11, 0); /* Sleep Out */
+	mdelay(120);
+
+	brain_write_byte(ili, 0x29, 0); /* Display On */
+	mdelay(120);
+
+	brain_write_byte(ili, 0x2a, 0); /* Column Address Set */
+	brain_write_byte(ili, 0x00, 1); /* Start Column in 2 Bytes */
+	brain_write_byte(ili, 0x00, 1);
+	brain_write_byte(ili, (m->hdisplay & 0xff00) >> 8, 1); /* End Column in 2 Bytes */
+	brain_write_byte(ili, (m->hdisplay & 0x00ff) >> 0, 1);
+
+	brain_write_byte(ili, 0x2b, 0); /* Page Address Set */
+	brain_write_byte(ili, 0x00, 1); /* Start Page in 2 Bytes */
+	brain_write_byte(ili, 0x00, 1);
+	brain_write_byte(ili, (m->vdisplay & 0xff00) >> 8, 1); /* End Page in 2 Bytes */
+	brain_write_byte(ili, (m->vdisplay & 0x00ff) >> 0, 1);
+
+	brain_write_byte(ili, 0x2c, 0); /* Memory Write */
+
 	writel(CTRL1_SET_BYTE_PACKAGING(0xf), ili->base + LCDC_CTRL1 + REG_CLR);
 	writel(CTRL1_SET_BYTE_PACKAGING(valid), ili->base + LCDC_CTRL1 + REG_SET);
 
@@ -330,7 +353,7 @@ static void brain_enable(struct drm_simple_display_pipe *pipe,
 
 static void brain_disable(struct drm_simple_display_pipe *pipe)
 {
-	struct brain_drm_private *ili = pipe_to_brain_drm_private(pipe);
+	struct brain_drm_private *ili = pipe_to_private(pipe);
 
 	clk_disable_unprepare(ili->clk_lcdif);
 	return;
@@ -367,7 +390,7 @@ timeout_exit:
 static void brain_update(struct drm_simple_display_pipe *pipe,
 			  struct drm_plane_state *old_state)
 {
-	struct brain_drm_private *ili = pipe_to_brain_drm_private(pipe);
+	struct brain_drm_private *ili = pipe_to_private(pipe);
 	struct drm_plane_state *state = pipe->plane.state;
 	struct drm_crtc *crtc = &pipe->crtc;
 	struct drm_rect rect;
@@ -390,17 +413,37 @@ static const struct drm_simple_display_pipe_funcs brain_pipe_funcs = {
 	.prepare_fb = drm_gem_fb_simple_display_pipe_prepare_fb,
 };
 
-static const struct drm_display_mode brainlcd_mode = {
-	DRM_SIMPLE_MODE(800, 480, 112, 67),
-};
-
 DEFINE_DRM_GEM_CMA_FOPS(brain_fops);
 
 static int brain_connector_get_modes(struct drm_connector *connector)
 {
-	struct drm_display_mode *mode;
+	struct brain_drm_private *ili;
+	static struct drm_display_mode modei;
+	struct drm_display_mode* mode;
+	u32 hd, vd, hd_mm, vd_mm;
 
-	mode = drm_mode_duplicate(connector->dev, &brainlcd_mode);
+	ili = connector_to_private(connector);
+
+	of_property_read_u32(ili->pdev->dev.of_node, "sharp,lcd-width", &hd);
+	of_property_read_u32(ili->pdev->dev.of_node, "sharp,lcd-height", &vd);
+	of_property_read_u32(ili->pdev->dev.of_node, "sharp,lcd-width-mm", &hd_mm);
+	of_property_read_u32(ili->pdev->dev.of_node, "sharp,lcd-height-mm", &vd_mm);
+
+	// Equivalent to DRM_SIMPLE_MODE macro
+	modei.type = DRM_MODE_TYPE_DRIVER;
+	modei.clock = 1;
+	modei.hdisplay = hd;
+	modei.hsync_start = hd;
+	modei.hsync_end = hd;
+	modei.htotal = hd;
+	modei.vdisplay = vd;
+	modei.vsync_start = vd;
+	modei.vsync_end = vd;
+	modei.vtotal = vd;
+	modei.width_mm = hd_mm;
+	modei.height_mm = vd_mm;
+
+	mode = drm_mode_duplicate(connector->dev, &modei);
 	if (!mode) {
 		DRM_ERROR("Failed to duplicate mode\n");
 		return 0;
@@ -459,9 +502,9 @@ static int brain_probe(struct platform_device *pdev)
 {
 	struct drm_device *drm;
 	struct brain_drm_private *ili;
-	size_t bufsize;
 	struct resource *res;
 	struct gpio_desc *en;
+	u32 width, height;
 	int i, ret;
 
 	const struct of_device_id *of_id =
@@ -518,13 +561,13 @@ static int brain_probe(struct platform_device *pdev)
 			dev_err(&pdev->dev, "failed to output gpio %d\n", i);
 	}
 	
-	bufsize = brainlcd_mode.vdisplay * brainlcd_mode.hdisplay * sizeof(u16);
+	of_property_read_u32(ili->pdev->dev.of_node, "sharp,lcd-width", &width);
+	of_property_read_u32(ili->pdev->dev.of_node, "sharp,lcd-height", &height);
 
-	ili->mode = &brainlcd_mode;
-	drm->mode_config.min_width = brainlcd_mode.hdisplay;
-	drm->mode_config.max_width = brainlcd_mode.hdisplay;
-	drm->mode_config.min_height = brainlcd_mode.vdisplay;
-	drm->mode_config.max_height = brainlcd_mode.vdisplay;
+	drm->mode_config.min_width = width;
+	drm->mode_config.max_width = width;
+	drm->mode_config.min_height = height;
+	drm->mode_config.max_height = height;
 
 	drm_connector_helper_add(&ili->connector, &brain_connector_helper_funcs);
 	ret = drm_connector_init(drm, &ili->connector, &brain_connector_funcs, DRM_MODE_CONNECTOR_DPI);

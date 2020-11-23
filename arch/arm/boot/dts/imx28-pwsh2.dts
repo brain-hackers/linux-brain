@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: GPL-2.0+
+//
+// Copyright 2012 Freescale Semiconductor, Inc.
+
+/dts-v1/;
+#include "imx28-brain.dtsi"
+
+/ {
+	model = "SHARP Brain PW-SH2";
+	compatible = "sharp,pw-sh2", "sharp,brain", "fsl,imx28";
+};
+
+&brainlcd {
+    status = "okay";
+
+    sharp,lcd-width = <800>;
+    sharp,lcd-height = <480>;
+    sharp,lcd-width-mm = <112>;
+    sharp,lcd-height-mm = <67>;
+
+    sharp,mac-transpose;
+    sharp,mac-inversion;
+    sharp,mac-bgr;
+
+    sharp,en-gpios =
+        <&gpio0 26 GPIO_ACTIVE_HIGH>,
+        <&gpio0 27 GPIO_ACTIVE_HIGH>,
+        <&gpio4 16 GPIO_ACTIVE_HIGH>;
+};
