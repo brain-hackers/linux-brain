@@ -281,7 +281,7 @@ static void __init m28cu3_init(void)
 	update_fec_mac_prop(OUI_DENX);
 }
 
-static void __init pwsh1_init(void)
+static void __init brain_init(void)
 {
 }
 
@@ -443,8 +443,8 @@ static void __init mxs_machine_init(void)
 		duckbill_init();
 	else if (of_machine_is_compatible("msr,m28cu3"))
 		m28cu3_init();
-	else if (of_machine_is_compatible("sharp,pw-sh1"))
-		pwsh1_init();
+	else if (of_machine_is_compatible("sharp,brain"))
+		brain_init();
 
 	of_platform_default_populate(NULL, NULL, parent);
 
