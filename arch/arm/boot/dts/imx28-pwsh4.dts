@@ -15,8 +15,8 @@
 
     sharp,lcd-width = <854>;
     sharp,lcd-height = <480>;
-    sharp,lcd-width-mm = <112>;
-    sharp,lcd-height-mm = <67>;
+    sharp,lcd-width-mm = <121>;
+    sharp,lcd-height-mm = <68>;
 
     sharp,mac-flip-y-gs;
     sharp,mac-transpose;
