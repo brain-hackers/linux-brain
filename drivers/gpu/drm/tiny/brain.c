@@ -54,7 +54,6 @@ struct brain_drm_private {
 	bool enabled;
 
 	struct drm_simple_display_pipe pipe;
-	const struct drm_display_mode *mode;
 	struct drm_connector connector;
 	struct drm_panel *panel;
 };
@@ -117,6 +116,11 @@ static const struct {
 static struct brain_drm_private *pipe_to_private(struct drm_simple_display_pipe *pipe)
 {
 	return container_of(pipe, struct brain_drm_private, pipe);
+}
+
+static struct brain_drm_private *connector_to_private(struct drm_connector *connector)
+{
+	return container_of(connector, struct brain_drm_private, connector);
 }
 
 static int brain_clear_poll(const void __iomem *addr, u32 mask, u32 timeout)
@@ -409,17 +413,37 @@ static const struct drm_simple_display_pipe_funcs brain_pipe_funcs = {
 	.prepare_fb = drm_gem_fb_simple_display_pipe_prepare_fb,
 };
 
-static const struct drm_display_mode brainlcd_mode = {
-	DRM_SIMPLE_MODE(800, 480, 112, 67),
-};
-
 DEFINE_DRM_GEM_CMA_FOPS(brain_fops);
 
 static int brain_connector_get_modes(struct drm_connector *connector)
 {
-	struct drm_display_mode *mode;
+	struct brain_drm_private *ili;
+	static struct drm_display_mode modei;
+	struct drm_display_mode* mode;
+	u32 hd, vd, hd_mm, vd_mm;
 
-	mode = drm_mode_duplicate(connector->dev, &brainlcd_mode);
+	ili = connector_to_private(connector);
+
+	of_property_read_u32(ili->pdev->dev.of_node, "sharp,lcd-width", &hd);
+	of_property_read_u32(ili->pdev->dev.of_node, "sharp,lcd-height", &vd);
+	of_property_read_u32(ili->pdev->dev.of_node, "sharp,lcd-width-mm", &hd_mm);
+	of_property_read_u32(ili->pdev->dev.of_node, "sharp,lcd-height-mm", &vd_mm);
+
+	// Equivalent to DRM_SIMPLE_MODE macro
+	modei.type = DRM_MODE_TYPE_DRIVER;
+	modei.clock = 1;
+	modei.hdisplay = hd;
+	modei.hsync_start = hd;
+	modei.hsync_end = hd;
+	modei.htotal = hd;
+	modei.vdisplay = vd;
+	modei.vsync_start = vd;
+	modei.vsync_end = vd;
+	modei.vtotal = vd;
+	modei.width_mm = hd_mm;
+	modei.height_mm = vd_mm;
+
+	mode = drm_mode_duplicate(connector->dev, &modei);
 	if (!mode) {
 		DRM_ERROR("Failed to duplicate mode\n");
 		return 0;
@@ -478,9 +502,9 @@ static int brain_probe(struct platform_device *pdev)
 {
 	struct drm_device *drm;
 	struct brain_drm_private *ili;
-	size_t bufsize;
 	struct resource *res;
 	struct gpio_desc *en;
+	u32 width, height;
 	int i, ret;
 
 	const struct of_device_id *of_id =
@@ -537,13 +561,13 @@ static int brain_probe(struct platform_device *pdev)
 			dev_err(&pdev->dev, "failed to output gpio %d\n", i);
 	}
 	
-	bufsize = brainlcd_mode.vdisplay * brainlcd_mode.hdisplay * sizeof(u16);
+	of_property_read_u32(ili->pdev->dev.of_node, "sharp,lcd-width", &width);
+	of_property_read_u32(ili->pdev->dev.of_node, "sharp,lcd-height", &height);
 
-	ili->mode = &brainlcd_mode;
-	drm->mode_config.min_width = brainlcd_mode.hdisplay;
-	drm->mode_config.max_width = brainlcd_mode.hdisplay;
-	drm->mode_config.min_height = brainlcd_mode.vdisplay;
-	drm->mode_config.max_height = brainlcd_mode.vdisplay;
+	drm->mode_config.min_width = width;
+	drm->mode_config.max_width = width;
+	drm->mode_config.min_height = height;
+	drm->mode_config.max_height = height;
 
 	drm_connector_helper_add(&ili->connector, &brain_connector_helper_funcs);
 	ret = drm_connector_init(drm, &ili->connector, &brain_connector_funcs, DRM_MODE_CONNECTOR_DPI);
