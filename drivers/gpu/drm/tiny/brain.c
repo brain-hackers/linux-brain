@@ -103,24 +103,14 @@ static const struct {
 		{ 0x02, 1, 0 },
 	{ 0xbb, 0, 0 }, /* ? */
 		{ 0x14, 1, 0 }, { 0x55, 1, 0 },
-	{ 0x36, 0, 0 }, /* Memory Access Control */
-		{ 0x28, 1, 0 },
 	{ 0x3a, 0, 0 }, /* Interface Pixel Format */
 		{ 0x55, 1, 0 },
-	{ 0x21, 0, 0 }, /* Display Inversion On */
 	{ 0xb6, 0, 0 }, /* MCU/RGB Interface Select */
 		{ 0x01, 1, 0 }, { 0x80, 1, 0 }, { 0x8f, 1, 0 },
 	{ 0x44, 0, 0 }, /* Write Tear Scan Line? */
 		{ 0x00, 1, 0 }, { 0x00, 1, 0 },
 	{ 0x35, 0, 0 }, /* Tearing Effect Line On */
 		{ 0x00, 1, 0 },
-	{ 0x11, 0, 120 }, /* Sleep Out */
-	{ 0x29, 0, 20 }, /* Display On */
-	{ 0x2a, 0, 0 }, /* Column Address Set */
-		{ 0x00, 1, 0 }, { 0x00, 1, 0 }, { 0x03, 1, 0 }, { 0x1f, 1, 0 },
-	{ 0x2b, 0, 0 }, /* Page Address Set */
-		{ 0x00, 1, 0 }, { 0x00, 1, 0 }, { 0x01, 1, 0 }, { 0xdf, 1, 0 },
-	{ 0x2c, 0, 0 }, /* Memory Write*/
 };
 
 
@@ -262,6 +252,7 @@ static void brain_enable(struct drm_simple_display_pipe *pipe,
 	struct drm_display_mode *m = &crtc_state->adjusted_mode;
 	int i, ret, idx;
 	u32 valid;
+	u8 mac = 0;
 
 	ili = pipe_to_brain_drm_private(pipe);
 	m = &ili->pipe.crtc.state->adjusted_mode;
@@ -300,6 +291,53 @@ static void brain_enable(struct drm_simple_display_pipe *pipe,
 		brain_write_byte(ili, lcd_regs[i].payload, lcd_regs[i].data);
 		mdelay(lcd_regs[i].delay);
 	}
+
+	if (of_property_read_bool(ili->pdev->dev.of_node, "sharp,mac-flip-x")) {
+		mac |= ILI9805_MADCTL_MX;
+	}
+
+	if (of_property_read_bool(ili->pdev->dev.of_node, "sharp,mac-flip-y")) {
+		mac |= ILI9805_MADCTL_MY;
+	}
+
+	if (of_property_read_bool(ili->pdev->dev.of_node, "sharp,mac-flip-y-gs")) {
+		mac |= ILI9805_MADCTL_GS;
+	}
+
+	if (of_property_read_bool(ili->pdev->dev.of_node, "sharp,mac-transpose")) {
+		mac |= ILI9805_MADCTL_MV;
+	}
+
+	if (of_property_read_bool(ili->pdev->dev.of_node, "sharp,mac-bgr")) {
+		mac |= ILI9805_MADCTL_BGR;
+	}
+
+	brain_write_byte(ili, 0x36, 0); /* Memory Access Control */
+	brain_write_byte(ili, mac, 1);
+
+	if (of_property_read_bool(ili->pdev->dev.of_node, "sharp,mac-inversion")) {
+		brain_write_byte(ili, 0x21, 0); /* Display Inversion On */
+	}
+
+	brain_write_byte(ili, 0x11, 0); /* Sleep Out */
+	mdelay(120);
+
+	brain_write_byte(ili, 0x29, 0); /* Display On */
+	mdelay(120);
+
+	brain_write_byte(ili, 0x2a, 0); /* Column Address Set */
+	brain_write_byte(ili, 0x00, 1); /* Start Column in 2 Bytes */
+	brain_write_byte(ili, 0x00, 1);
+	brain_write_byte(ili, (m->hdisplay & 0xff00) >> 8, 1); /* End Column in 2 Bytes */
+	brain_write_byte(ili, (m->hdisplay & 0x00ff) >> 0, 1);
+
+	brain_write_byte(ili, 0x2b, 0); /* Page Address Set */
+	brain_write_byte(ili, 0x00, 1); /* Start Page in 2 Bytes */
+	brain_write_byte(ili, 0x00, 1);
+	brain_write_byte(ili, (m->vdisplay & 0xff00) >> 8, 1); /* End Page in 2 Bytes */
+	brain_write_byte(ili, (m->vdisplay & 0x00ff) >> 0, 1);
+
+	brain_write_byte(ili, 0x2c, 0); /* Memory Write */
 
 	writel(CTRL1_SET_BYTE_PACKAGING(0xf), ili->base + LCDC_CTRL1 + REG_CLR);
 	writel(CTRL1_SET_BYTE_PACKAGING(valid), ili->base + LCDC_CTRL1 + REG_SET);
