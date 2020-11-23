@@ -114,7 +114,7 @@ static const struct {
 };
 
 
-static struct brain_drm_private *pipe_to_brain_drm_private(struct drm_simple_display_pipe *pipe)
+static struct brain_drm_private *pipe_to_private(struct drm_simple_display_pipe *pipe)
 {
 	return container_of(pipe, struct brain_drm_private, pipe);
 }
@@ -254,7 +254,7 @@ static void brain_enable(struct drm_simple_display_pipe *pipe,
 	u32 valid;
 	u8 mac = 0;
 
-	ili = pipe_to_brain_drm_private(pipe);
+	ili = pipe_to_private(pipe);
 	m = &ili->pipe.crtc.state->adjusted_mode;
 
 	if (!drm_dev_enter(pipe->crtc.dev, &idx))
@@ -349,7 +349,7 @@ static void brain_enable(struct drm_simple_display_pipe *pipe,
 
 static void brain_disable(struct drm_simple_display_pipe *pipe)
 {
-	struct brain_drm_private *ili = pipe_to_brain_drm_private(pipe);
+	struct brain_drm_private *ili = pipe_to_private(pipe);
 
 	clk_disable_unprepare(ili->clk_lcdif);
 	return;
@@ -386,7 +386,7 @@ timeout_exit:
 static void brain_update(struct drm_simple_display_pipe *pipe,
 			  struct drm_plane_state *old_state)
 {
-	struct brain_drm_private *ili = pipe_to_brain_drm_private(pipe);
+	struct brain_drm_private *ili = pipe_to_private(pipe);
 	struct drm_plane_state *state = pipe->plane.state;
 	struct drm_crtc *crtc = &pipe->crtc;
 	struct drm_rect rect;
