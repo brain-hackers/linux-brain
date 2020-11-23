@@ -6,19 +6,20 @@
 #include "imx28-brain.dtsi"
 
 / {
-	model = "SHARP Brain PW-SH1";
-	compatible = "sharp,pw-sh1", "sharp,brain", "fsl,imx28";
+	model = "SHARP Brain PW-SH6";
+	compatible = "sharp,pw-sh6", "sharp,brain", "fsl,imx28";
 };
 
 &brainlcd {
     status = "okay";
 
-    sharp,lcd-width = <800>;
+    sharp,lcd-width = <854>;
     sharp,lcd-height = <480>;
+    sharp,lcd-width-mm = <112>;
+    sharp,lcd-height-mm = <67>;
 
+    sharp,mac-flip-y-gs;
     sharp,mac-transpose;
-    sharp,mac-inversion;
-    sharp,mac-bgr;
 
     sharp,en-gpios =
         <&gpio0 26 GPIO_ACTIVE_HIGH>,
