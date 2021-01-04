@@ -226,6 +226,14 @@
 				pinctrl-names = "default";
 				pinctrl-0 = <&i2c1_pins_a>;
 				status = "okay";
+
+				keyboard_i2c: keyboard_i2c@28 {
+					status = "disabled";
+					compatible = "sharp,brain-kbd-i2c";
+					reg = <0x28>;
+					interrupt-parent = <&gpio4>;
+					interrupts = <2 4>;
+				};
 			};
 
 			pwm: pwm@80064000 {

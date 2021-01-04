@@ -3,6 +3,7 @@
 // Copyright 2012 Freescale Semiconductor, Inc.
 
 /dts-v1/;
+#include <dt-bindings/input/input.h>
 #include "imx28-brain.dtsi"
 
 / {
@@ -11,19 +12,106 @@
 };
 
 &brainlcd {
-    status = "okay";
+	status = "okay";
 
-    sharp,lcd-width = <800>;
-    sharp,lcd-height = <480>;
-    sharp,lcd-width-mm = <112>;
-    sharp,lcd-height-mm = <67>;
+	sharp,lcd-width = <800>;
+	sharp,lcd-height = <480>;
+	sharp,lcd-width-mm = <112>;
+	sharp,lcd-height-mm = <67>;
 
-    sharp,mac-transpose;
-    sharp,mac-inversion;
-    sharp,mac-bgr;
+	sharp,mac-transpose;
+	sharp,mac-inversion;
+	sharp,mac-bgr;
 
-    sharp,en-gpios =
-        <&gpio0 26 GPIO_ACTIVE_HIGH>,
-        <&gpio0 27 GPIO_ACTIVE_HIGH>,
-        <&gpio4 16 GPIO_ACTIVE_HIGH>;
+	sharp,en-gpios =
+	<&gpio0 26 GPIO_ACTIVE_HIGH>,
+	<&gpio0 27 GPIO_ACTIVE_HIGH>,
+	<&gpio4 16 GPIO_ACTIVE_HIGH>;
+};
+
+&keyboard_i2c {
+	status = "okay";
+	keymap =
+		<0x01 KEY_POWER>,     /* Power */
+		<0x07 KEY_ESC>,       /* Search */
+		<0x0d KEY_TAB>,       /* Kokugo */
+		<0x11 KEY_PAGEUP>,    /* Eiwa Waei */
+		<0x15 KEY_PAGEDOWN>,  /* My Dictionary */
+		<0x25 KEY_INSERT>,    /* History / Bookmark */
+		<0x1d KEY_DELETE>,    /* Marker test */
+		/* <0x2b Memorization tool> */
+		/* <0x24 Home> */
+		<0x02 KEY_Q>,         /* Q */
+		<0x08 KEY_W>,         /* W */
+		<0x0e KEY_E>,         /* E */
+		<0x12 KEY_R>,         /* R */
+		<0x16 KEY_T>,         /* T */
+		<0x1e KEY_Y>,         /* Y */
+		<0x26 KEY_U>,         /* U */
+		<0x2c KEY_I>,         /* I */
+		<0x27 KEY_O>,         /* O */
+		<0x2d KEY_P>,         /* P */
+		<0x03 KEY_A>,         /* A */
+		<0x09 KEY_S>,         /* S */
+		<0x0f KEY_D>,         /* D */
+		<0x13 KEY_F>,         /* F */
+		<0x17 KEY_G>,         /* G */
+		<0x1f KEY_H>,         /* H */
+		<0x20 KEY_J>,         /* J */
+		<0x28 KEY_K>,         /* K */
+		<0x2e KEY_L>,         /* L */
+		<0x05 KEY_LEFTSHIFT>,
+		<0x04 KEY_Z>,         /* Z */
+		<0x0a KEY_X>,         /* X */
+		<0x10 KEY_C>,         /* C */
+		<0x14 KEY_V>,         /* V */
+		<0x18 KEY_B>,         /* B */
+		<0x21 KEY_N>,         /* N */
+		<0x29 KEY_M>,         /* M */
+		<0x2f KEY_MINUS>,     /* Minus */
+		<0x31 KEY_BACKSPACE>, /* Backspace */
+		<0x0b KEY_LEFTCTRL>, /* Page Up */
+		/* <0x0c KEY_PAGEDOWN>, */ /* Page Down */
+		<0x06 KEY_LEFTALT>, /* Switch characters */
+		/* < 0x19, Symbols>, */
+		<0x1b KEY_ESC>,       /* Go Back */
+		<0x1c KEY_SPACE>,     /* Space */
+		<0x23 KEY_ENTER>,     /* Enter */
+		<0x1a KEY_LEFT>,      /* Left */
+		<0x22 KEY_UP>,        /* Up */
+		<0x2a KEY_DOWN>,      /* Down */
+		<0x30 KEY_RIGHT>;     /* Right */
+	keymap-symbol =
+		<0x01 KEY_POWER>,      /* Power */
+		<0x07 KEY_ESC>,        /* Search */
+		<0x0d KEY_TAB>,        /* Kokugo */
+		<0x11 KEY_PAGEUP>,     /* Eiwa Waei */
+		<0x15 KEY_PAGEDOWN>,   /* My Dictionary */
+		<0x25 KEY_INSERT>,     /* History / Bookmark */
+		<0x1d KEY_DELETE>,     /* Marker test */
+		<0x02 KEY_1>,          /* Q */
+		<0x08 KEY_2>,          /* W */
+		<0x0e KEY_3>,          /* E */
+		<0x12 KEY_4>,          /* R */
+		<0x16 KEY_5>,          /* T */
+		<0x1e KEY_6>,          /* Y */
+		<0x26 KEY_7>,          /* U */
+		<0x2c KEY_8>,          /* I */
+		<0x27 KEY_9>,          /* O */
+		<0x2d KEY_0>,          /* P */
+		<0x0f KEY_GRAVE>,      /* D */
+		<0x13 KEY_EQUAL>,      /* F */
+		<0x17 KEY_BACKSLASH>,  /* G */
+		<0x1f KEY_SEMICOLON>,  /* H */
+		<0x20 KEY_APOSTROPHE>, /* J */
+		<0x28 KEY_LEFTBRACE>,  /* K */
+		<0x2e KEY_RIGHTBRACE>, /* L */
+		<0x05 KEY_LEFTSHIFT>,
+		<0x21 KEY_COMMA>,      /* N */
+		<0x29 KEY_DOT>,        /* M */
+		<0x2f KEY_SLASH>,      /* Minus */
+		<0x31 KEY_BACKSPACE>,  /* Backspace */
+		<0x0b KEY_LEFTCTRL>,   /* Page Up */
+		/* <0x0c KEY_PAGEDOWN>, */ /* Page Down */
+		<0x06 KEY_LEFTALT>;  /* Switch characters */
 };
