@@ -68,4 +68,8 @@ config LOGO_SUPERH_CLUT224
 	depends on SUPERH
 	default y
 
+config LOGO_BRAIN_CLUT224
+	bool "224-color Brain Linux logo"
+	default y
+
 endif # LOGO
