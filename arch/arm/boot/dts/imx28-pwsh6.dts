@@ -11,18 +11,18 @@
 };
 
 &brainlcd {
-    status = "okay";
+	status = "okay";
 
-    sharp,lcd-width = <854>;
-    sharp,lcd-height = <480>;
-    sharp,lcd-width-mm = <121>;
-    sharp,lcd-height-mm = <68>;
+	sharp,lcd-width = <854>;
+	sharp,lcd-height = <480>;
+	sharp,lcd-width-mm = <121>;
+	sharp,lcd-height-mm = <68>;
 
-    sharp,mac-flip-y-gs;
-    sharp,mac-transpose;
+	sharp,mac-flip-y-gs;
+	sharp,mac-transpose;
 
-    sharp,en-gpios =
-        <&gpio0 26 GPIO_ACTIVE_HIGH>,
-        <&gpio0 27 GPIO_ACTIVE_HIGH>,
-        <&gpio4 16 GPIO_ACTIVE_HIGH>;
+	sharp,en-gpios =
+		<&gpio0 26 GPIO_ACTIVE_HIGH>,
+		<&gpio0 27 GPIO_ACTIVE_HIGH>,
+		<&gpio4 16 GPIO_ACTIVE_HIGH>;
 };

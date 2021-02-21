@@ -12,21 +12,21 @@
 };
 
 &brainlcd {
-    status = "okay";
+	status = "okay";
 
-    sharp,lcd-width = <800>;
-    sharp,lcd-height = <480>;
-    sharp,lcd-width-mm = <112>;
-    sharp,lcd-height-mm = <67>;
+	sharp,lcd-width = <800>;
+	sharp,lcd-height = <480>;
+	sharp,lcd-width-mm = <112>;
+	sharp,lcd-height-mm = <67>;
 
-    sharp,mac-transpose;
-    sharp,mac-inversion;
-    sharp,mac-bgr;
+	sharp,mac-transpose;
+	sharp,mac-inversion;
+	sharp,mac-bgr;
 
-    sharp,en-gpios =
-        <&gpio0 26 GPIO_ACTIVE_HIGH>,
-        <&gpio0 27 GPIO_ACTIVE_HIGH>,
-        <&gpio4 16 GPIO_ACTIVE_HIGH>;
+	sharp,en-gpios =
+		<&gpio0 26 GPIO_ACTIVE_HIGH>,
+		<&gpio0 27 GPIO_ACTIVE_HIGH>,
+		<&gpio4 16 GPIO_ACTIVE_HIGH>;
 };
 
 &keyboard_i2c {
