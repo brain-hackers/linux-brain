@@ -6,8 +6,8 @@
 #include "imx28-brain.dtsi"
 
 / {
-	model = "SHARP Brain PW-SH6";
-	compatible = "sharp,pw-sh6", "sharp,brain", "fsl,imx28";
+	model = "SHARP Brain PW-SH5";
+	compatible = "sharp,pw-sh5", "sharp,brain", "fsl,imx28";
 };
 
 &brainlcd {
