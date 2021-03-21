@@ -966,7 +966,8 @@ dtb-$(CONFIG_ARCH_MXS) += \
 	imx28-pwsh3.dtb \
 	imx28-pwsh4.dtb \
 	imx28-pwsh5.dtb \
-	imx28-pwsh6.dtb
+	imx28-pwsh6.dtb \
+	imx28-pwsh7.dtb
 dtb-$(CONFIG_ARCH_NOMADIK) += \
 	ste-nomadik-s8815.dtb \
 	ste-nomadik-nhk15.dtb
