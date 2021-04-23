@@ -961,6 +961,7 @@ dtb-$(CONFIG_ARCH_MXS) += \
 	imx28-ts4600.dtb \
 	imx28-tx28.dtb \
 	imx28-xea.dtb \
+	imx28-pwg5300.dtb \
 	imx28-pwsh1.dtb \
 	imx28-pwsh2.dtb \
 	imx28-pwsh3.dtb \
