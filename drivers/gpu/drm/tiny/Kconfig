@@ -59,6 +59,18 @@ config TINYDRM_BRAIN
 
 	  If M is selected the module will be called brain.
 
+config TINYDRM_BRAIN_2G
+	tristate "DRM support for LQ050J1UG01 display panels on Sharp Brain"
+	depends on DRM
+	select DRM_KMS_HELPER
+	select DRM_KMS_CMA_HELPER
+	select BACKLIGHT_CLASS_DEVICE
+	help
+	  DRM driver for the following Sharp LQ050J1UG01 panels:
+	  * Sharp Brain 480x320 TFT
+
+	  If M is selected the module will be called brain.
+
 config TINYDRM_MI0283QT
 	tristate "DRM support for MI0283QT"
 	depends on DRM && SPI
