@@ -386,7 +386,7 @@ static void brain_enable(struct drm_simple_display_pipe *pipe,
 	writel(CTRL1_SET_BYTE_PACKAGING(valid), ili->base + LCDC_CTRL1 + REG_SET);
 
 	/* Ready to transmit */
-	writel(CTRL_MASTER, ili->base + LCDC_CTRL + REG_SET);
+	writel(CTRL_MASTER | CTRL_RUN, ili->base + LCDC_CTRL + REG_SET);
 	ili->enabled = true;
 }
 
