@@ -4,6 +4,7 @@
 
 /dts-v1/;
 #include "imx28.dtsi"
+#include <dt-bindings/interrupt-controller/irq.h>
 
 / {
 	model = "SHARP Brain PW-SH1";
@@ -236,7 +237,7 @@
 					compatible = "sharp,brain-kbd-i2c";
 					reg = <0x28>;
 					interrupt-parent = <&gpio4>;
-					interrupts = <2 4>;
+					interrupts = <2 IRQ_TYPE_LEVEL_HIGH>;
 				};
 			};
 
