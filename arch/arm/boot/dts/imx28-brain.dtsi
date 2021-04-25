@@ -287,4 +287,9 @@
 		brightness-levels = <0 4 8 16 32 64 128 255>;
 		default-brightness-level = <4>;  //Set 4 for identification on probing
 	};
+
+	keyboard_gpio: keyboard_gpio {
+		status = "disabled";
+		compatible = "sharp,brain-kbd-gpio";
+	};
 };

@@ -14,6 +14,7 @@ obj-$(CONFIG_KEYBOARD_APPLESPI)		+= applespi.o
 obj-$(CONFIG_KEYBOARD_ATARI)		+= atakbd.o
 obj-$(CONFIG_KEYBOARD_ATKBD)		+= atkbd.o
 obj-$(CONFIG_KEYBOARD_BCM)		+= bcm-keypad.o
+obj-$(CONFIG_KEYBOARD_BRAIN_GPIO)	+= brain-kbd-gpio.o
 obj-$(CONFIG_KEYBOARD_BRAIN_I2C)	+= brain-kbd-i2c.o
 obj-$(CONFIG_KEYBOARD_CAP11XX)		+= cap11xx.o
 obj-$(CONFIG_KEYBOARD_CLPS711X)		+= clps711x-keypad.o
