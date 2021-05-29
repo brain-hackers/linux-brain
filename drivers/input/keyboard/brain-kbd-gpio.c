@@ -56,7 +56,7 @@ static void bk_gpio_read_keys(struct input_polled_dev *polldev, ulong* result)
 			if (err) {
 				dev_err(dev, "failed to get array value: %d\n", err);
 			}
-			in[try][i] = ~((in[try][i] ^ (in[try][i] >> 1)) & 0x1f ^ (in[try][i] >> 1)) & 0x7f;
+			in[try][i] = ~(((in[try][i] ^ (in[try][i] >> 1)) & 0x1f) ^ (in[try][i] >> 1)) & 0x7f;
 			gpiod_set_value(kbd->out[i], 0);
 		}
 
