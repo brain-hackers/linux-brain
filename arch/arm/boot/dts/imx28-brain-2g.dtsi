@@ -229,6 +229,13 @@
 					interrupt-parent = <&gpio4>;
 					interrupts = <2 4>;
 				};
+
+				lcd_touchscreen_i2c: sx8650@48 {
+					compatible = "semtech,sx8650";
+					reg = <0x48>;
+					interrupt-parent = <&gpio3>;
+					interrupts = <1 2>;
+				};
 			};
 
 			i2c1: i2c@8005a000 {
