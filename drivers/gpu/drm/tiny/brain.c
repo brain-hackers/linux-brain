@@ -433,7 +433,7 @@ static int brain_connector_get_modes(struct drm_connector *connector)
 
 	// Equivalent to DRM_SIMPLE_MODE macro
 	modei.type = DRM_MODE_TYPE_DRIVER;
-	modei.clock = 1;
+	modei.clock = hd * vd * 60 / 1000;
 	modei.hdisplay = hd;
 	modei.hsync_start = hd;
 	modei.hsync_end = hd;
@@ -442,6 +442,7 @@ static int brain_connector_get_modes(struct drm_connector *connector)
 	modei.vsync_start = vd;
 	modei.vsync_end = vd;
 	modei.vtotal = vd;
+	modei.vrefresh = 60;
 	modei.width_mm = hd_mm;
 	modei.height_mm = vd_mm;
 
