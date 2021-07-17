@@ -28,8 +28,6 @@
 		<&gpio4 16 GPIO_ACTIVE_HIGH>;
 };
 
-
-
 &keyboard_gpio {
 	status = "okay";
 	matrix-in-gpios =
