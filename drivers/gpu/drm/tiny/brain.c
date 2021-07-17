@@ -285,6 +285,8 @@ static void brain_enable(struct drm_simple_display_pipe *pipe,
 	writel(TIMING_CMD_HOLD(1) | TIMING_CMD_SETUP(1) | TIMING_DATA_HOLD(1) | TIMING_DATA_SETUP(1),
 		ili->base + LCDC_TIMING);
 
+	clk_set_rate(ili->clk_lcdif, m->vtotal * m->htotal * 60 * 2);
+
 	/* Initialize LCD */
 	/* Decrease the bus width to 8-bit temporarily */
 	valid = CTRL1_GET_BYTE_PACKAGING(readl(ili->base + LCDC_CTRL1));
