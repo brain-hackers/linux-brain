@@ -135,11 +135,13 @@
 					fsl,pull-up = <MXS_PULL_DISABLE>;
 				};
 
-				lcd_backlight: pwm@0 {
+				pwm_pins: pwm@0 {
 					reg = <0>;
 					fsl,pinmux-ids = <
 						MX28_PAD_AUART1_RX__PWM_0
 						MX28_PAD_AUART1_TX__PWM_1
+						MX28_PAD_PWM4__PWM_4
+						MX28_PAD_SAIF1_SDATA0__GPIO_3_26
 					>;
 					fsl,drive-strength = <MXS_DRIVE_4mA>;
 					fsl,voltage = <MXS_VOLTAGE_HIGH>;
@@ -244,7 +246,7 @@
 
 			pwm: pwm@80064000 {
 				pinctrl-names = "default";
-				pinctrl-0 = <&lcd_backlight>;
+				pinctrl-0 = <&pwm_pins>;
 				status = "okay";
 			};
 
@@ -287,5 +289,20 @@
 		pwms = <&pwm 0 50000>, <&pwm 1 50000>;
 		brightness-levels = <0 4 8 16 32 64 128 255>;
 		default-brightness-level = <4>;  //Set 4 for identification on probing
+	};
+
+	buzzer_cold: buzzer_cold {
+		compatible = "regulator-fixed";
+		regulator-name = "fixed-supply";
+		regulator-max-microvolt = <3300000>;
+		regulator-min-microvolt = <3300000>;
+		gpios = <&gpio3 26 GPIO_ACTIVE_LOW>;
+		regulator-always-on;
+	};
+
+	buzzer: buzzer {
+		compatible = "pwm-beeper";
+		pwms = <&pwm 4 50000>;
+		amp-supply = <&buzzer_cold>;
 	};
 };
