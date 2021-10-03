@@ -209,6 +209,18 @@ config TINYDRM_ST7586
 
 	  If M is selected the module will be called st7586.
 
+config TINYDRM_BRAIN_ST7586
+	tristate "DRM support for Sitronix ST7586 display panels on Sharp Brain"
+	depends on DRM && SPI
+	select DRM_KMS_HELPER
+	select DRM_KMS_CMA_HELPER
+	select DRM_MIPI_DBI
+	help
+	  DRM driver for the following Sitronix ST7586 panels:
+	  * Sharp Brain 240x120 LCD
+
+	  If M is selected the module will be called brain-st7586.
+
 config TINYDRM_ST7735R
 	tristate "DRM support for Sitronix ST7715R/ST7735R display panels"
 	depends on DRM && SPI
