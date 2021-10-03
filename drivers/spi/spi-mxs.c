@@ -67,6 +67,13 @@ static int mxs_spi_setup_transfer(struct spi_device *dev,
 	struct mxs_ssp *ssp = &spi->ssp;
 	const unsigned int hz = min(dev->max_speed_hz, t->speed_hz);
 
+	if (t->bits_per_word > 8) {
+		if (t->len & 1) {
+			dev_err(&dev->dev, "Invalid size of rx and tx buffers\n");
+			return -EINVAL;
+		}
+	}
+
 	if (hz == 0) {
 		dev_err(&dev->dev, "SPI clock rate of zero not allowed\n");
 		return -EINVAL;
@@ -90,7 +97,7 @@ static int mxs_spi_setup_transfer(struct spi_device *dev,
 		ssp->base + HW_SSP_CTRL0 + STMP_OFFSET_REG_SET);
 
 	writel(BF_SSP_CTRL1_SSP_MODE(BV_SSP_CTRL1_SSP_MODE__SPI) |
-	       BF_SSP_CTRL1_WORD_LENGTH(BV_SSP_CTRL1_WORD_LENGTH__EIGHT_BITS) |
+	       BF_SSP_CTRL1_WORD_LENGTH(t->bits_per_word - 1) |
 	       ((dev->mode & SPI_CPOL) ? BM_SSP_CTRL1_POLARITY : 0) |
 	       ((dev->mode & SPI_CPHA) ? BM_SSP_CTRL1_PHASE : 0),
 	       ssp->base + HW_SSP_CTRL1(ssp));
@@ -296,13 +303,17 @@ err_mapped:
 }
 
 static int mxs_spi_txrx_pio(struct mxs_spi *spi,
-			    unsigned char *buf, int len,
+			    unsigned char *buf, int len, u8 bit_per_word,
 			    unsigned int flags)
 {
 	struct mxs_ssp *ssp = &spi->ssp;
+	u32 val;
 
 	writel(BM_SSP_CTRL0_IGNORE_CRC,
 	       ssp->base + HW_SSP_CTRL0 + STMP_OFFSET_REG_CLR);
+
+	if (bit_per_word > 8)
+		len /= 2;
 
 	while (len--) {
 		if (len == 0 && (flags & TXRX_DEASSERT_CS))
@@ -331,8 +342,14 @@ static int mxs_spi_txrx_pio(struct mxs_spi *spi,
 		if (mxs_ssp_wait(spi, HW_SSP_CTRL0, BM_SSP_CTRL0_RUN, 1))
 			return -ETIMEDOUT;
 
-		if (flags & TXRX_WRITE)
-			writel(*buf, ssp->base + HW_SSP_DATA(ssp));
+		if (flags & TXRX_WRITE) {
+			if (bit_per_word > 8)
+				val = *(u16*)(buf);
+			else
+				val = *buf;
+
+			writel(val, ssp->base + HW_SSP_DATA(ssp));
+		}
 
 		writel(BM_SSP_CTRL0_DATA_XFER,
 			     ssp->base + HW_SSP_CTRL0 + STMP_OFFSET_REG_SET);
@@ -342,13 +359,21 @@ static int mxs_spi_txrx_pio(struct mxs_spi *spi,
 						BM_SSP_STATUS_FIFO_EMPTY, 0))
 				return -ETIMEDOUT;
 
-			*buf = (readl(ssp->base + HW_SSP_DATA(ssp)) & 0xff);
+			val = readl(ssp->base + HW_SSP_DATA(ssp));
+
+			if (bit_per_word > 8)
+				*(u16*)buf = val & ((1 << bit_per_word) - 1);
+			else
+				*buf = val & 0xff;
 		}
 
 		if (mxs_ssp_wait(spi, HW_SSP_CTRL0, BM_SSP_CTRL0_RUN, 0))
 			return -ETIMEDOUT;
 
-		buf++;
+		if (bit_per_word > 8)
+			buf += 2;
+		else
+			buf++;
 	}
 
 	if (len <= 0)
@@ -400,11 +425,13 @@ static int mxs_spi_transfer_one(struct spi_master *master,
 
 			if (t->tx_buf)
 				status = mxs_spi_txrx_pio(spi,
-						(void *)t->tx_buf,
-						t->len, flag | TXRX_WRITE);
+						(void *)t->tx_buf, t->len,
+						t->bits_per_word,
+						flag | TXRX_WRITE);
 			if (t->rx_buf)
 				status = mxs_spi_txrx_pio(spi,
 						t->rx_buf, t->len,
+						t->bits_per_word,
 						flag);
 		} else {
 			writel(BM_SSP_CTRL1_DMA_ENABLE,
@@ -568,7 +595,7 @@ static int mxs_spi_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, master);
 
 	master->transfer_one_message = mxs_spi_transfer_one;
-	master->bits_per_word_mask = SPI_BPW_MASK(8);
+	master->bits_per_word_mask = SPI_BPW_RANGE_MASK(8, 16);
 	master->mode_bits = SPI_CPOL | SPI_CPHA;
 	master->num_chipselect = 3;
 	master->dev.of_node = np;
