@@ -156,6 +156,7 @@
 					fsl,pinmux-ids = <
 						MX28_PAD_AUART1_RX__PWM_0
 						MX28_PAD_AUART1_TX__PWM_1
+						MX28_PAD_PWM2__PWM_2
 						MX28_PAD_PWM4__PWM_4
 						MX28_PAD_SAIF1_SDATA0__GPIO_3_26
 					>;
@@ -313,11 +314,18 @@
 		audio-codec = <&sgtl5000>;
 	};
 
-	backlight_display: backlight {
+	backlight_display: backlight@0 {
 		compatible = "pwm-backlight";
 		pwms = <&pwm 0 50000>, <&pwm 1 50000>;
 		brightness-levels = <0 4 8 16 32 64 128 255>;
 		default-brightness-level = <4>;  //Set 4 for identification on probing
+	};
+
+	slcd_backlight: backlight@1 {
+		compatible = "pwm-backlight";
+		pwms = <&pwm 2 50000>;
+		brightness-levels = <0 63 127 255>;
+		default-brightness-level = <3>;
 	};
 
 	buzzer_cold: buzzer_cold {
