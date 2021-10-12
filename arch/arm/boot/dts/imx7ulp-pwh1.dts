@@ -322,13 +322,6 @@
 	status = "okay";
 };
 
-&lpuart6 {
-	pinctrl-names = "default", "sleep";
-	pinctrl-0 = <&pinctrl_lpuart6>;
-	pinctrl-1 = <&pinctrl_lpuart6>;
-	status = "disabled";
-};
-
 &lpuart7 { /* Uart test */
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&pinctrl_lpuart7>;
