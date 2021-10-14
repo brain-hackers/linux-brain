@@ -902,7 +902,7 @@ dtb-$(CONFIG_SOC_IMX7ULP) += \
 	imx7ulp-evkb-rm68200-wxga.dtb \
 	imx7ulp-evkb-rm68200-wxga.dtb \
 	imx7ulp-evkb-rm68191-qhd.dtb \
-	imx7ulp-pwh1.dts
+	imx7ulp-pwh1.dtb
 dtb-$(CONFIG_SOC_IMXRT) += \
 	imxrt1050-evk.dtb
 dtb-$(CONFIG_SOC_LAN966) += \
