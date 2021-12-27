@@ -38,13 +38,14 @@ struct bk_i2c_data {
 	int kmlen_symbol;
 
 	bool symbol;
+	u32 symbol_keycode;
 };
 
 static bool detect_key(struct bk_i2c_data *kbd, u8 keycode)
 {
 	int i;
 
-	if ((keycode & 0x3f) == 0x19) {
+	if ((keycode & 0x3f) == (u8)(kbd->symbol_keycode)) {
 		if (BK_IS_PRESSED(keycode)) {
 			dev_dbg(&kbd->cli->dev, "symbol pressed!\n");
 			kbd->symbol = true;
@@ -152,6 +153,11 @@ static int bk_i2c_probe(struct i2c_client *cli, const struct i2c_device_id *id)
 	kbd = devm_kzalloc(&cli->dev, sizeof(*kbd), GFP_KERNEL);
 	if (!kbd) {
 		return -ENOMEM;
+	}
+
+	if (of_property_read_u32(cli->dev.of_node,
+			"symbol-keycode", &kbd->symbol_keycode)) {
+		kbd->symbol_keycode = 0x19;
 	}
 
 	cells = 2;
