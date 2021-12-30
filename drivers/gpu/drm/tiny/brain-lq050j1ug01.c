@@ -554,7 +554,7 @@ static struct drm_driver brain_driver = {
 	.driver_features	= DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC,
 	.fops			= &brain_fops,
 	DRM_GEM_CMA_VMAP_DRIVER_OPS,
-	.name			= "brain",
+	.name			= "brain-2g",
 	.desc			= "Sharp LQ050J1UG01",
 	.date			= "20210417",
 	.major			= 1,
@@ -562,7 +562,7 @@ static struct drm_driver brain_driver = {
 };
 
 static const struct of_device_id brain_of_match[] = {
-	{ .compatible = "sharp,brainlcd" },
+	{ .compatible = "sharp,brainlcd-2g" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, brain_of_match);
@@ -686,7 +686,7 @@ static struct platform_driver brain_platform_driver = {
 	.remove	= brain_remove,
 	.shutdown = brain_shutdown,
 	.driver = {
-		.name   = "brain",
+		.name   = "brain-2g",
 		.of_match_table = brain_of_match,
 	},
 };

@@ -4,15 +4,37 @@
 
 /dts-v1/;
 #include <dt-bindings/input/input.h>
-#include "imx28-brain-2g.dtsi"
+#include "imx28-brain.dtsi"
 
 / {
 	model = "SHARP Brain PW-G5300";
 	compatible = "sharp,pw-g5300", "sharp,brain", "fsl,imx28";
 };
 
+&ssp2 {
+	status = "okay";
+};
+
+&saif1 {
+	status = "disabled";
+};
+
+&i2c1 {
+	status = "disabled";
+};
+
+&pwm {
+	pinctrl-0 = <&lcd_backlight_pins &slcd_backlight_pin &buzzer_pins>;
+};
+
+&duart {
+	pinctrl-0 = <&duart_pins_a>;
+};
+
 &brainlcd {
 	status = "okay";
+	compatible = "sharp,brainlcd-2g";
+	pinctrl-0 = <&lcdif_pins &lcdif_reset_pin>;
 
 	sharp,lcd-width = <480>;
 	sharp,lcd-height = <320>;
@@ -25,7 +47,11 @@
 	<&gpio4 16 GPIO_ACTIVE_HIGH>;
 };
 
-&keyboard_i2c {
+&slcd {
+	status = "okay";
+};
+
+&keyboard_i2c_2g {
 	status = "okay";
 	symbol-keycode = <0x0c>;  /* Page Down */
 	keymap =
@@ -113,4 +139,20 @@
 		<0x31 KEY_BACKSPACE>,  /* Backward */
 		<0x06 KEY_LEFTCTRL>,   /* Audio */
 		<0x0b KEY_LEFTALT>;    /* Page Up */
+};
+
+&lcd_touchscreen_i2c {
+	status = "okay";
+};
+
+&slcd_backlight {
+	status = "okay";
+};
+
+&buzzer_cold {
+	status = "okay";
+};
+
+&buzzer {
+	status = "okay";
 };

@@ -96,6 +96,23 @@
 				status = "okay";
 			};
 
+			ssp2: spi@80014000 {
+				compatible = "fsl,imx28-spi";
+				pinctrl-names = "default";
+				pinctrl-0 = <&slcd_pins>;
+				clock-frequency = <16000000>;
+				status = "disabled";
+
+				slcd: slcd@0 {
+					reg = <0>;
+					status = "okay";
+					compatible = "brain,st7586";
+					spi-max-frequency = <16000000>;
+					reset-gpios = <&gpio2 18 GPIO_ACTIVE_HIGH>;
+					rotation = <180>;
+				};
+			};
+
 			pinctrl@80018000 {
 				pinctrl-names = "default";
 				pinctrl-0 = <&hog_pins_3v3_pullup &hog_pins_3v3_nopull &hog_pins_1v8_nopull>;
@@ -136,11 +153,32 @@
 					fsl,pull-up = <MXS_PULL_DISABLE>;
 				};
 
-				lcd_backlight: pwm@0 {
+				lcd_backlight_pins: pwm@0 {
 					reg = <0>;
 					fsl,pinmux-ids = <
 						MX28_PAD_AUART1_RX__PWM_0
 						MX28_PAD_AUART1_TX__PWM_1
+					>;
+					fsl,drive-strength = <MXS_DRIVE_4mA>;
+					fsl,voltage = <MXS_VOLTAGE_HIGH>;
+					fsl,pull-up = <MXS_PULL_DISABLE>;
+				};
+
+				slcd_backlight_pin: pwm@1 {
+					reg = <1>;
+					fsl,pinmux-ids = <
+						MX28_PAD_PWM2__PWM_2
+					>;
+					fsl,drive-strength = <MXS_DRIVE_4mA>;
+					fsl,voltage = <MXS_VOLTAGE_HIGH>;
+					fsl,pull-up = <MXS_PULL_DISABLE>;
+				};
+
+				buzzer_pins: pwm@2 {
+					reg = <2>;
+					fsl,pinmux-ids = <
+						MX28_PAD_PWM4__PWM_4
+						MX28_PAD_SAIF1_SDATA0__GPIO_3_26
 					>;
 					fsl,drive-strength = <MXS_DRIVE_4mA>;
 					fsl,voltage = <MXS_VOLTAGE_HIGH>;
@@ -170,10 +208,42 @@
 						MX28_PAD_LCD_WR_RWN__LCD_WR_RWN
 						MX28_PAD_LCD_RS__LCD_RS
 						MX28_PAD_LCD_CS__LCD_CS
-						MX28_PAD_LCD_RESET__LCD_VSYNC
 					>;
 					fsl,drive-strength = <MXS_DRIVE_4mA>;
 					fsl,voltage = <MXS_VOLTAGE_LOW>;
+					fsl,pull-up = <MXS_PULL_DISABLE>;
+				};
+
+				lcdif_vsync_pin: lcdif@1 {
+					reg = <1>;
+					fsl,pinmux-ids = <
+						MX28_PAD_LCD_RESET__LCD_VSYNC
+					>;
+					fsl,driver-strength = <MXS_DRIVE_4mA>;
+					fsl,voltage = <MXS_VOLTAGE_LOW>;
+					fsl,pull-up = <MXS_PULL_DISABLE>;
+				};
+
+				lcdif_reset_pin: lcdif@2 {
+					reg = <2>;
+					fsl,pinmux-ids = <
+						MX28_PAD_LCD_RESET__LCD_RESET
+					>;
+					fsl,driver-strength = <MXS_DRIVE_4mA>;
+					fsl,voltage = <MXS_VOLTAGE_LOW>;
+					fsl,pull-up = <MXS_PULL_DISABLE>;
+				};
+
+				slcd_pins: spi2@0 {
+					reg = <0>;
+					fsl,pinmux-ids = <
+						MX28_PAD_SSP2_SCK__SSP2_SCK
+						MX28_PAD_SSP2_MOSI__SSP2_CMD
+						MX28_PAD_SSP2_MISO__GPIO_2_18
+						MX28_PAD_SSP2_SS0__SSP2_D3
+					>;
+					fsl,drive-strength = <MXS_DRIVE_4mA>;
+					fsl,voltage = <MXS_VOLTAGE_HIGH>;
 					fsl,pull-up = <MXS_PULL_DISABLE>;
 				};
 			};
@@ -181,7 +251,7 @@
 			brainlcd: lcdif@80030000 {
 				compatible = "sharp,brainlcd";
 				pinctrl-names = "default";
-				pinctrl-0 = <&lcdif_pins>;
+				pinctrl-0 = <&lcdif_pins &lcdif_vsync_pin>;
 				status = "disabled";
 			};
 		};
@@ -225,6 +295,22 @@
 					VDDIO-supply = <&reg_3p3v>;
 					clocks = <&saif0>;
 				};
+
+				keyboard_i2c_2g: keyboard_i2c_2g@28 {
+					status = "disabled";
+					compatible = "sharp,brain-kbd-i2c";
+					reg = <0x28>;
+					interrupt-parent = <&gpio4>;
+					interrupts = <2 IRQ_TYPE_LEVEL_HIGH>;
+				};
+
+				lcd_touchscreen_i2c: sx8650@48 {
+					status = "disabled";
+					compatible = "semtech,sx8650";
+					reg = <0x48>;
+					interrupt-parent = <&gpio3>;
+					interrupts = <1 IRQ_TYPE_EDGE_FALLING>;
+				};
 			};
 
 			i2c1: i2c@8005a000 {
@@ -243,7 +329,7 @@
 
 			pwm: pwm@80064000 {
 				pinctrl-names = "default";
-				pinctrl-0 = <&lcd_backlight>;
+				pinctrl-0 = <&lcd_backlight_pins>;
 				status = "okay";
 			};
 
@@ -281,15 +367,40 @@
 		audio-codec = <&sgtl5000>;
 	};
 
-	backlight_display: backlight {
+	backlight_display: backlight@0 {
 		compatible = "pwm-backlight";
 		pwms = <&pwm 0 50000>, <&pwm 1 50000>;
 		brightness-levels = <0 4 8 16 32 64 128 255>;
 		default-brightness-level = <4>;  //Set 4 for identification on probing
 	};
 
+	slcd_backlight: backlight@1 {
+		status = "disabled";
+		compatible = "pwm-backlight";
+		pwms = <&pwm 2 50000>;
+		brightness-levels = <0 63 127 255>;
+		default-brightness-level = <3>;
+	};
+
 	keyboard_gpio: keyboard_gpio {
 		status = "disabled";
 		compatible = "sharp,brain-kbd-gpio";
+	};
+
+	buzzer_cold: buzzer_cold {
+		status = "disabled";
+		compatible = "regulator-fixed";
+		regulator-name = "fixed-supply";
+		regulator-max-microvolt = <3300000>;
+		regulator-min-microvolt = <3300000>;
+		gpios = <&gpio3 26 GPIO_ACTIVE_LOW>;
+		regulator-always-on;
+	};
+
+	buzzer: buzzer {
+		status = "disabled";
+		compatible = "pwm-beeper";
+		pwms = <&pwm 4 50000>;
+		amp-supply = <&buzzer_cold>;
 	};
 };
