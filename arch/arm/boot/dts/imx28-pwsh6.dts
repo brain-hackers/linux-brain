@@ -4,6 +4,7 @@
 
 /dts-v1/;
 #include "imx28-brain.dtsi"
+#include <dt-bindings/input/input.h>
 
 / {
 	model = "SHARP Brain PW-SH6";
@@ -25,4 +26,125 @@
 		<&gpio0 26 GPIO_ACTIVE_HIGH>,
 		<&gpio0 27 GPIO_ACTIVE_HIGH>,
 		<&gpio4 16 GPIO_ACTIVE_HIGH>;
+};
+
+&keyboard_gpio {
+	status = "okay";
+	matrix-in-gpios =
+		<&gpio4 0 GPIO_ACTIVE_HIGH>,
+		<&gpio4 1 GPIO_ACTIVE_HIGH>,
+		<&gpio4 2 GPIO_ACTIVE_HIGH>,
+		<&gpio4 3 GPIO_ACTIVE_HIGH>,
+		<&gpio4 4 GPIO_ACTIVE_HIGH>,
+		<&gpio4 5 GPIO_ACTIVE_HIGH>,
+		<&gpio4 6 GPIO_ACTIVE_HIGH>,
+		<&gpio4 7 GPIO_ACTIVE_HIGH>;
+	matrix-out-gpios =
+		<&gpio2 16 GPIO_ACTIVE_HIGH>,
+		<&gpio2 17 GPIO_ACTIVE_HIGH>,
+		<&gpio2 18 GPIO_ACTIVE_HIGH>,
+		<&gpio2 19 GPIO_ACTIVE_HIGH>,
+		<&gpio2 20 GPIO_ACTIVE_HIGH>,
+		<&gpio2 21 GPIO_ACTIVE_HIGH>,
+		<&gpio4 8 GPIO_ACTIVE_HIGH>;
+	symbol-key = <2 4>;
+	keymap =
+		/* Bank 0x01 */
+		<0 0 KEY_V>,          /* V */
+		<0 1 KEY_H>,          /* H */
+		<0 2 KEY_Y>,          /* Y */
+		/*<0 3 Modoru>, */
+		<0 4 KEY_C>,          /* C */
+		<0 5 KEY_D>,          /* D */
+		/* <0x01 6 Home>, */
+
+		/* Bank 0x02 */
+		<1 0 KEY_M>,          /* M */
+		<1 1 KEY_K>,          /* K */
+		<1 2 KEY_INSERT>,     /* History */
+		<1 3 KEY_DOWN>,       /* Down */
+		<1 4 KEY_LEFTCTRL>,   /* Page Up */
+		<1 5 KEY_F>,          /* F */
+		<1 6 KEY_E>,          /* E */
+
+		/* Bank 0x04 */
+		<2 0 KEY_B>,          /* B */
+		<2 1 KEY_J>,          /* J */
+		<2 2 KEY_U>,          /* U */
+		<2 3 KEY_LEFT>,       /* Left */
+		<2 4 0>,              /* Symbols (specify 0 to mark this key used) */
+		<2 5 KEY_X>,          /* X */
+
+		/* Bank 0x08 */
+		<3 0 KEY_N>,          /* N */
+		<3 1 KEY_I>,          /* I */
+		<3 2 KEY_PAGEDOWN>,   /* My Dictionary */
+		<3 3 KEY_UP>,         /* Up */
+		/*<3 4 PageDown> */
+		<3 5 KEY_Q>,          /* Q */
+		<3 6 KEY_ESC>,        /* Home */
+
+		/* Bank 0x10 */
+		<4 0 KEY_BACKSPACE>,  /* Backspace */
+		<4 1 KEY_G>,          /* G */
+		<4 2 KEY_T>,          /* T */
+		<4 3 KEY_RIGHT>,      /* Right */
+		<4 4 KEY_LEFTSHIFT>,  /* LeftShift */
+		<4 5 KEY_A>,          /* A */
+
+		/* Bank 0x20 */
+		<5 0 KEY_P>,          /* P */
+		<5 1 KEY_O>,          /* O */
+		<5 2 KEY_DELETE>,     /* Ichiran */
+		<5 3 KEY_ENTER>,      /* Enter */
+		<5 4 KEY_Z>,          /* Z */
+		<5 5 KEY_W>,          /* W */
+		<5 6 KEY_TAB>,        /* Kokugo */
+
+		/* Bank 0x40 */
+		<6 0 KEY_MINUS>,      /* Minus */
+		<6 1 KEY_L>,          /* L */
+		<6 2 KEY_R>,          /* R */
+		<6 3 KEY_SPACE>,      /* Space */
+		<6 4 KEY_LEFTALT>,    /* Onsei */
+		<6 5 KEY_S>,          /* S */
+		<6 6 KEY_PAGEUP>;     /* Eiwa */
+	keymap-symbol =
+		<6 6 KEY_PAGEUP>,     /* Eiwa Waei */
+		<3 6 KEY_ESC>,        /* Search */
+		<5 6 KEY_TAB>,        /* Kokugo */
+		<3 2 KEY_PAGEDOWN>,   /* My Dictionary */
+		<1 2 KEY_INSERT>,     /* History Bookmark */
+		<5 2 KEY_DELETE>,     /* Marker test */
+		/* <0 6 Home>, */
+
+		<3 5 KEY_1>,          /* Q */
+		<5 5 KEY_2>,          /* W */
+		<1 6 KEY_3>,          /* E */
+		<4 2 KEY_5>,          /* T */
+		<0 2 KEY_6>,          /* Y */
+		<2 2 KEY_7>,          /* U */
+		<3 1 KEY_8>,          /* I */
+
+		<0 5 KEY_GRAVE>,      /* D */
+		<4 1 KEY_BACKSLASH>,  /* G */
+		<0 1 KEY_SEMICOLON>,  /* H */
+		<5 1 KEY_9>,          /* O */
+		<5 0 KEY_0>,          /* P */
+
+		<2 1 KEY_APOSTROPHE>, /* J */
+		<1 1 KEY_LEFTBRACE>,  /* K */
+		<6 1 KEY_RIGHTBRACE>, /* L */
+
+		<4 4 KEY_LEFTSHIFT>,  /* Shift */
+		<6 2 KEY_4>,          /* R */
+		<1 5 KEY_EQUAL>,      /* F */
+		<3 0 KEY_COMMA>,      /* N */
+		<1 0 KEY_DOT>,        /* M */
+		<6 0 KEY_SLASH>,      /* Minus */
+
+		<1 4 KEY_LEFTCTRL>,   /* Page Up */
+
+		<6 4 KEY_LEFTALT>,    /* Switch characters */
+		<4 0 KEY_BACKSPACE>;  /* Backspace */
 };
