@@ -7,7 +7,7 @@
 #include "imx28-brain.dtsi"
 
 / {
-	model = "SHARP Brain PW-A7200";
+	model = "SHARP Brain PW-A7200 series";
 	compatible = "sharp,pw-a7200", "sharp,brain", "fsl,imx28";
 };
 
