@@ -7,6 +7,9 @@
 #include "imx28-brain.dtsi"
 
 / {
+	// Compatible with:
+	//     PW-G4200, PW-G5200, PW-G5300, PW-A7200, PW-A7300, PW-A7400,
+	//     PW-A9100, PW-A9200, PW-A9300
 	model = "SHARP Brain PW-A7200 series";
 	compatible = "sharp,pw-a7200", "sharp,brain", "fsl,imx28";
 };
