@@ -7,7 +7,6 @@
  * Author: Takumi Sueda <puhitaku@gmail.com>
  *
  */
-
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/i2c.h>
@@ -24,6 +23,18 @@
 
 #define BK_IS_PRESSED(val) ((~val & 0x40) >> 6)
 
+#define BK_IS_SWITCH(val)   (((val) & 0x80)!=0)
+#define BK_SW_CODE(val)     (((val)>>1)&0x1F)
+#define BK_SWITCH_ON(val)   (((val)&1)==0)
+
+enum{
+	BK_SW_LCD_DIR1  = 3,
+	BK_SW_UNKNOWN4,
+	BK_SW_USB_VBUS,
+	BK_SW_LCD_CLOSE,
+	BK_SW_LCD_DIR2
+};
+
 struct keymap_def {
 	u8 brain_keycode;
 	unsigned int kernel_keycode;
@@ -36,14 +47,45 @@ struct bk_i2c_data {
 	struct keymap_def *km_symbol;
 	int kmlen;
 	int kmlen_symbol;
-
 	bool symbol;
 	u32 symbol_keycode;
+	bool near_close;
+	/* bool full_close; */
 };
 
 static bool detect_key(struct bk_i2c_data *kbd, u8 keycode)
 {
 	int i;
+	if(BK_IS_SWITCH(keycode))
+	{
+		bool sw_on = BK_SWITCH_ON(keycode);
+		unsigned int sw_code;
+		switch( BK_SW_CODE(keycode) )
+		{
+		case BK_SW_LCD_DIR1:
+			if(!sw_on) {
+				kbd->near_close = false;
+			}
+			return true;
+		case BK_SW_LCD_DIR2:
+			if(sw_on) {
+				kbd->near_close = true;
+			}
+			return true;
+
+		case BK_SW_LCD_CLOSE:
+			sw_code = (kbd->near_close) ? SW_LID : SW_TABLET_MODE;
+			input_report_switch(kbd->idev,sw_code,sw_on);
+			return true;
+
+		case BK_SW_USB_VBUS:
+			input_report_switch(kbd->idev,SW_DOCK,sw_on);
+			return true;
+		default:
+			dev_dbg(&kbd->cli->dev, "Unknown switch event %0x02X",keycode);
+		}
+		return false;
+	}
 
 	if ((keycode & 0x3f) == (u8)(kbd->symbol_keycode)) {
 		if (BK_IS_PRESSED(keycode)) {
@@ -101,21 +143,20 @@ static irqreturn_t bk_i2c_irq_handler(int irq, void *devid)
 	n = raw >> 8;
 	k1 = raw & 0xff;
 
+	dev_dbg(&kbd->cli->dev, "kbd-raw0[%02X,%02X]\n",n,k1);
 	if (k1 == 0x00) {
 		dev_dbg(&kbd->cli->dev,
 			"interrupted but no key press was found\n");
 		goto err;
 	}
 
-	if (n == 1) {
-		if (detect_key(kbd, k1)) {
-			goto done;
-		} else {
-			dev_dbg(&kbd->cli->dev,
-				"unknown key was pressed: %02x\n", (k1 & 0x3f));
-			goto err;
-		}
+	if(n<1) goto done;
+	if (!detect_key(kbd, k1)) {
+		dev_dbg(&kbd->cli->dev,
+			"unknown key was pressed: %02x\n", (k1 & 0x3f));
+		goto err;
 	}
+	if( n<2) goto done;
 
 	raw = i2c_smbus_read_word_swapped(kbd->cli, BK_CMD_KEYCODE);
 	if (raw < 0) {
@@ -123,16 +164,13 @@ static irqreturn_t bk_i2c_irq_handler(int irq, void *devid)
 			raw);
 		goto err;
 	}
-
 	k2 = (raw & 0xff00) >> 8;
 	k3 = raw & 0xff;
-
+	dev_dbg(&kbd->cli->dev, "kbd-raw2[%02X,%02X]\n",k2,k3);
 	detect_key(kbd, k2);
-
-	if (n == 3) {
-		detect_key(kbd, k3);
-	}
-
+	
+	if(n<3) goto done;
+	detect_key(kbd, k3);
 done:
 	input_sync(kbd->idev);
 err:
@@ -154,7 +192,6 @@ static int bk_i2c_probe(struct i2c_client *cli, const struct i2c_device_id *id)
 	if (!kbd) {
 		return -ENOMEM;
 	}
-
 	if (of_property_read_u32(cli->dev.of_node,
 			"symbol-keycode", &kbd->symbol_keycode)) {
 		kbd->symbol_keycode = 0x19;
@@ -254,6 +291,11 @@ static int bk_i2c_probe(struct i2c_client *cli, const struct i2c_device_id *id)
 		input_set_capability(kbd->idev, EV_KEY,
 				     kbd->km_symbol[i].kernel_keycode);
 	}
+	kbd->near_close = false;
+	/* kbd->full_close = false; */
+	input_set_capability(kbd->idev, EV_SW, SW_LID);
+	input_set_capability(kbd->idev, EV_SW, SW_TABLET_MODE);
+	input_set_capability(kbd->idev, EV_SW, SW_DOCK);
 
 	err = input_register_device(kbd->idev);
 	if (err) {
@@ -261,7 +303,6 @@ static int bk_i2c_probe(struct i2c_client *cli, const struct i2c_device_id *id)
 			err);
 		return err;
 	}
-
 	i2c_smbus_read_byte_data(kbd->cli, 0x00);
 	i2c_smbus_read_byte_data(kbd->cli, 0x0a);
 	i2c_smbus_read_byte_data(kbd->cli, 0x01);
