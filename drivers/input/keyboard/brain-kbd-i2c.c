@@ -166,7 +166,7 @@ static irqreturn_t bk_i2c_irq_handler(int irq, void *devid)
 	}
 	k2 = (raw & 0xff00) >> 8;
 	k3 = raw & 0xff;
-	dev_dbg(&kbd->cli->dev, "kbd-raw2[%02X,%02X]\n",k2,k3);
+	dev_dbg(&kbd->cli->dev, "Raw key event 2 and 3: %02X,%02X\n", k2, k3);
 	detect_key(kbd, k2);
 	
 	if(n<3) goto done;
