@@ -169,7 +169,9 @@ static irqreturn_t bk_i2c_irq_handler(int irq, void *devid)
 	dev_dbg(&kbd->cli->dev, "Raw key event 2 and 3: %02X,%02X\n", k2, k3);
 	detect_key(kbd, k2);
 	
-	if(n<3) goto done;
+	if (n < 3) {
+		goto done;
+	}
 	detect_key(kbd, k3);
 done:
 	input_sync(kbd->idev);
