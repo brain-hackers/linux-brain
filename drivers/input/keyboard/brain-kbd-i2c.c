@@ -143,7 +143,7 @@ static irqreturn_t bk_i2c_irq_handler(int irq, void *devid)
 	n = raw >> 8;
 	k1 = raw & 0xff;
 
-	dev_dbg(&kbd->cli->dev, "kbd-raw0[%02X,%02X]\n",n,k1);
+	dev_dbg(&kbd->cli->dev, "N=%d, Raw key event: %02X\n", n, k1);
 	if (k1 == 0x00) {
 		dev_dbg(&kbd->cli->dev,
 			"interrupted but no key press was found\n");
