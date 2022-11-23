@@ -49,7 +49,7 @@ struct bk_i2c_data {
 	int kmlen_symbol;
 	bool symbol;
 	u32 symbol_keycode;
-	bool near_close;
+	bool closing;
 	/* bool full_close; */
 };
 
