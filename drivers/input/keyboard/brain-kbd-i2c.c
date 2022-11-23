@@ -27,12 +27,12 @@
 #define BK_SW_CODE(val)     (((val)>>1)&0x1F)
 #define BK_SWITCH_ON(val)   (((val)&1)==0)
 
-enum{
-	BK_SW_LCD_DIR1  = 3,
+enum {
+	BK_SW_LCD_TRANSFORMING_TO_TABLET = 3,
 	BK_SW_UNKNOWN4,
 	BK_SW_USB_VBUS,
-	BK_SW_LCD_CLOSE,
-	BK_SW_LCD_DIR2
+	BK_SW_LCD_FULLY_TRANSFORMED,
+	BK_SW_LCD_TRANSFORMING_TO_CLOSED
 };
 
 struct keymap_def {
