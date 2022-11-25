@@ -62,19 +62,19 @@ static bool detect_key(struct bk_i2c_data *kbd, u8 keycode)
 		unsigned int sw_code;
 		switch( BK_SW_CODE(keycode) )
 		{
-		case BK_SW_LCD_DIR1:
+		case BK_SW_LCD_TRANSFORMING_TO_TABLET:
 			if(!sw_on) {
-				kbd->near_close = false;
+				kbd->closing = false;
 			}
 			return true;
-		case BK_SW_LCD_DIR2:
+		case BK_SW_LCD_TRANSFORMING_TO_CLOSED:
 			if(sw_on) {
-				kbd->near_close = true;
+				kbd->closing = true;
 			}
 			return true;
 
-		case BK_SW_LCD_CLOSE:
-			sw_code = (kbd->near_close) ? SW_LID : SW_TABLET_MODE;
+		case BK_SW_LCD_FULLY_TRANSFORMED:
+			sw_code = (kbd->closing) ? SW_LID : SW_TABLET_MODE;
 			input_report_switch(kbd->idev,sw_code,sw_on);
 			return true;
 
@@ -293,7 +293,7 @@ static int bk_i2c_probe(struct i2c_client *cli, const struct i2c_device_id *id)
 		input_set_capability(kbd->idev, EV_KEY,
 				     kbd->km_symbol[i].kernel_keycode);
 	}
-	kbd->near_close = false;
+	kbd->closing = false;
 	/* kbd->full_close = false; */
 	input_set_capability(kbd->idev, EV_SW, SW_LID);
 	input_set_capability(kbd->idev, EV_SW, SW_TABLET_MODE);
