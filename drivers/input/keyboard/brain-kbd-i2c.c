@@ -147,15 +147,17 @@ static irqreturn_t bk_i2c_irq_handler(int irq, void *devid)
 		goto err;
 	}
 
-	if (n < 1)
+	if (n < 1) {
 		goto done;
+	}
 	if (!detect_key(kbd, k1)) {
 		dev_dbg(&kbd->cli->dev, "unknown key was pressed: %02x\n",
 			(k1 & 0x3f));
 		goto err;
 	}
-	if (n < 2)
+	if (n < 2) {
 		goto done;
+	}
 
 	raw = i2c_smbus_read_word_swapped(kbd->cli, BK_CMD_KEYCODE);
 	if (raw < 0) {
@@ -163,8 +165,10 @@ static irqreturn_t bk_i2c_irq_handler(int irq, void *devid)
 			raw);
 		goto err;
 	}
+
 	k2 = (raw & 0xff00) >> 8;
 	k3 = raw & 0xff;
+
 	dev_dbg(&kbd->cli->dev, "Raw key event 2 and 3: %02X,%02X\n", k2, k3);
 	detect_key(kbd, k2);
 
@@ -194,8 +198,8 @@ static int bk_i2c_probe(struct i2c_client *cli, const struct i2c_device_id *id)
 		return -ENOMEM;
 	}
 
-	if (of_property_read_u32(cli->dev.of_node,
-			"symbol-keycode", &kbd->symbol_keycode)) {
+	if (of_property_read_u32(cli->dev.of_node, "symbol-keycode",
+				 &kbd->symbol_keycode)) {
 		kbd->symbol_keycode = 0x19;
 	}
 
