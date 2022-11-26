@@ -7,6 +7,7 @@
  * Author: Takumi Sueda <puhitaku@gmail.com>
  *
  */
+
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/i2c.h>
