@@ -1126,8 +1126,16 @@
 			};
 
 			power: power@80044000 {
+				compatible = "syscon", "simple-mfd";
 				reg = <0x80044000 0x2000>;
-				status = "disabled";
+
+				poweroff: poweroff {
+					compatible = "syscon-poweroff";
+					regmap = <&power>;
+					offset = <0x104>;
+					value = <0x3e770001>;
+					status = "disabled";
+				};
 			};
 
 			saif1: saif@80046000 {
