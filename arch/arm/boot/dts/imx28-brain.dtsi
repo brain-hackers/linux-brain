@@ -263,6 +263,12 @@
 				status = "okay";
 			};
 
+			power: power@80044000 {
+				poweroff: poweroff {
+					status = "okay";
+				};
+			};
+
 			saif1: saif@80046000 {
 				pinctrl-names = "default";
 				pinctrl-0 = <&saif1_pins_a>;
