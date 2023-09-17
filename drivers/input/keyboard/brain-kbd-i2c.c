@@ -98,8 +98,8 @@ static bool detect_key(struct bk_i2c_data *kbd, u8 keycode)
 	}
 
 	if (kbd->symbol) {
-		if ((0 == BK_IS_PRESSED(keycode)) &&
-				(false == kbd->symbol_flag[keycode & 0x3f])) {
+		if ((BK_IS_PRESSED(keycode) == 0) &&
+				(kbd->symbol_flag[keycode & 0x3f] == false)) {
 			for (i = 0; i < kbd->kmlen; i++) {
 				if ((keycode & 0x3f) == kbd->km[i].brain_keycode) {
 					dev_dbg(&kbd->cli->dev,
@@ -129,8 +129,8 @@ static bool detect_key(struct bk_i2c_data *kbd, u8 keycode)
 			}
 		}
 	} else {
-		if ((0 == BK_IS_PRESSED(keycode)) &&
-				(true == kbd->symbol_flag[keycode & 0x3f])) {
+		if ((BK_IS_PRESSED(keycode) == 0) &&
+				(kbd->symbol_flag[keycode & 0x3f] == true)) {
 			for (i = 0; i < kbd->kmlen_symbol; i++) {
 				if ((keycode & 0x3f) == kbd->km_symbol[i].brain_keycode) {
 					dev_dbg(&kbd->cli->dev,
