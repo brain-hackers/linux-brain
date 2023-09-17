@@ -50,6 +50,7 @@ struct bk_i2c_data {
 	bool symbol;
 	u32 symbol_keycode;
 	bool closing;
+	bool symbol_flag[256];
 };
 
 static bool detect_key(struct bk_i2c_data *kbd, u8 keycode)
@@ -97,28 +98,62 @@ static bool detect_key(struct bk_i2c_data *kbd, u8 keycode)
 	}
 
 	if (kbd->symbol) {
+		if ((0 == BK_IS_PRESSED(keycode)) &&
+				(false == kbd->symbol_flag[keycode & 0x3f])) {
+			for (i = 0; i < kbd->kmlen; i++) {
+				if ((keycode & 0x3f) == kbd->km[i].brain_keycode) {
+					dev_dbg(&kbd->cli->dev,
+						"release normal key %02x\n", keycode & 0x3f);
+					input_report_key(
+						kbd->idev,
+						kbd->km[i].kernel_keycode,
+						BK_IS_PRESSED(keycode));
+					return true;
+				}
+			}
+		}
+
 		for (i = 0; i < kbd->kmlen_symbol; i++) {
 			if ((keycode & 0x3f) ==
 			    kbd->km_symbol[i].brain_keycode) {
 				dev_dbg(&kbd->cli->dev,
-					"symbol: pressed %02x\n",
+					"symbol: %s %02x\n",
+					BK_IS_PRESSED(keycode) ? "pressed" : "released",
 					kbd->km_symbol[i].brain_keycode);
 				input_report_key(
 					kbd->idev,
 					kbd->km_symbol[i].kernel_keycode,
 					BK_IS_PRESSED(keycode));
+				kbd->symbol_flag[keycode & 0x3f] = BK_IS_PRESSED(keycode);
 				return true;
 			}
 		}
 	} else {
+		if ((0 == BK_IS_PRESSED(keycode)) &&
+				(true == kbd->symbol_flag[keycode & 0x3f])) {
+			for (i = 0; i < kbd->kmlen_symbol; i++) {
+				if ((keycode & 0x3f) == kbd->km_symbol[i].brain_keycode) {
+					dev_dbg(&kbd->cli->dev,
+						"release symbol key %02x\n", keycode & 0x3f);
+					input_report_key(
+						kbd->idev,
+						kbd->km_symbol[i].kernel_keycode,
+						BK_IS_PRESSED(keycode));
+					return true;
+				}
+			}
+		}
+
 		for (i = 0; i < kbd->kmlen; i++) {
 			if ((keycode & 0x3f) == kbd->km[i].brain_keycode) {
 				dev_dbg(&kbd->cli->dev,
-					"normal: pressed %02x\n",
+					"normal: %s %02x\n",
+					BK_IS_PRESSED(keycode) ? "pressed" : "released",
 					kbd->km[i].brain_keycode);
 				input_report_key(kbd->idev,
 						 kbd->km[i].kernel_keycode,
 						 BK_IS_PRESSED(keycode));
+				kbd->symbol_flag[keycode & 0x3f] = false;
 				return true;
 			}
 		}
@@ -141,7 +176,7 @@ static irqreturn_t bk_i2c_irq_handler(int irq, void *devid)
 	n = raw >> 8;
 	k1 = raw & 0xff;
 
-	dev_dbg(&kbd->cli->dev, "N=%d, Raw key event: %02X\n", n, k1);
+	dev_dbg(&kbd->cli->dev, "N=%d, k1=%02X\n", n, k1);
 	if (k1 == 0x00) {
 		dev_dbg(&kbd->cli->dev,
 			"interrupted but no key press was found\n");
@@ -150,11 +185,14 @@ static irqreturn_t bk_i2c_irq_handler(int irq, void *devid)
 
 	if (n < 1) {
 		goto done;
+	} else if (n > 3) {
+		dev_dbg(&kbd->cli->dev,
+			"invalid sequence\n");
+		n = 3;
 	}
 	if (!detect_key(kbd, k1)) {
-		dev_dbg(&kbd->cli->dev, "unknown key was pressed: %02x\n",
+		dev_dbg(&kbd->cli->dev, "unknown key was pressed: k1=%02x\n",
 			(k1 & 0x3f));
-		goto err;
 	}
 	if (n < 2) {
 		goto done;
@@ -162,7 +200,7 @@ static irqreturn_t bk_i2c_irq_handler(int irq, void *devid)
 
 	raw = i2c_smbus_read_word_swapped(kbd->cli, BK_CMD_KEYCODE);
 	if (raw < 0) {
-		dev_err(&kbd->cli->dev, "failed to read 2nd/3rd keycode: %d\n",
+		dev_err(&kbd->cli->dev, "failed to read 2nd/3rd:%x\n",
 			raw);
 		goto err;
 	}
@@ -170,13 +208,19 @@ static irqreturn_t bk_i2c_irq_handler(int irq, void *devid)
 	k2 = (raw & 0xff00) >> 8;
 	k3 = raw & 0xff;
 
-	dev_dbg(&kbd->cli->dev, "Raw key event 2 and 3: %02X,%02X\n", k2, k3);
-	detect_key(kbd, k2);
+	dev_dbg(&kbd->cli->dev, "k2=%02x, k3=%02x\n", k2, k3);
+	if (!detect_key(kbd, k2)) {
+		dev_dbg(&kbd->cli->dev, "unknown key was pressed: k2=%02x\n",
+			k2 & 0x3f);
+	}
 
 	if (n < 3) {
 		goto done;
 	}
-	detect_key(kbd, k3);
+	if (!detect_key(kbd, k3)) {
+		dev_dbg(&kbd->cli->dev, "unknown key was pressed: k3=%02x\n",
+			k3 & 0x3f);
+	}
 done:
 	input_sync(kbd->idev);
 err:
@@ -299,6 +343,9 @@ static int bk_i2c_probe(struct i2c_client *cli, const struct i2c_device_id *id)
 				     kbd->km_symbol[i].kernel_keycode);
 	}
 	kbd->closing = false;
+	for (i = 0; i < ARRAY_SIZE(kbd->symbol_flag); i++) {
+		kbd->symbol_flag[i] = false;
+	}
 	input_set_capability(kbd->idev, EV_SW, SW_LID);
 	input_set_capability(kbd->idev, EV_SW, SW_TABLET_MODE);
 	input_set_capability(kbd->idev, EV_SW, SW_DOCK);
