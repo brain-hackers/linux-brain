@@ -22,11 +22,15 @@
 
 #define BK_CMD_KEYCODE 0x04
 
+#define BK_KEY(val) ((val) & 0x3f)
 #define BK_IS_PRESSED(val) ((~val & 0x40) >> 6)
 
 #define BK_IS_SWITCH(val) (((val)&0x80) != 0)
 #define BK_SW_CODE(val) (((val) >> 1) & 0x1F)
 #define BK_SWITCH_ON(val) (((val)&1) == 0)
+
+#define BK_KEYCODE_MAX (64)
+#define BK_N_ROLL_MAX (3)
 
 enum { BK_SW_LCD_TRANSFORMING_TO_TABLET = 3,
        BK_SW_UNKNOWN4,
@@ -35,130 +39,128 @@ enum { BK_SW_LCD_TRANSFORMING_TO_TABLET = 3,
        BK_SW_LCD_TRANSFORMING_TO_CLOSED };
 
 struct keymap_def {
-	u8 brain_keycode;
-	unsigned int kernel_keycode;
+	unsigned int normal_event_code;
+	unsigned int symbol_event_code;
 };
 
 struct bk_i2c_data {
 	struct i2c_client *cli;
 	struct input_dev *idev;
-	struct keymap_def *km;
-	struct keymap_def *km_symbol;
-	int kmlen;
-	int kmlen_symbol;
+	struct keymap_def keymaps[BK_KEYCODE_MAX];
 
-	bool symbol;
+	bool symbol_states[BK_KEYCODE_MAX];
+	bool symbol_mode;
 	u32 symbol_keycode;
 	bool closing;
-	bool symbol_flag[256];
 };
+
+static bool handle_switch(struct bk_i2c_data *kbd, u8 keycode)
+{
+	bool sw_on = BK_SWITCH_ON(keycode);
+	unsigned int sw_code;
+
+	switch (BK_SW_CODE(keycode)) {
+	case BK_SW_LCD_TRANSFORMING_TO_TABLET:
+		if (!sw_on)
+			kbd->closing = false;
+		return true;
+
+	case BK_SW_LCD_TRANSFORMING_TO_CLOSED:
+		if (sw_on)
+			kbd->closing = true;
+		return true;
+
+	case BK_SW_LCD_FULLY_TRANSFORMED:
+		sw_code = (kbd->closing) ? SW_LID : SW_TABLET_MODE;
+		input_report_switch(kbd->idev, sw_code, sw_on);
+		return true;
+
+	case BK_SW_USB_VBUS:
+		input_report_switch(kbd->idev, SW_DOCK, sw_on);
+		return true;
+
+	default:
+		dev_dbg(&kbd->cli->dev, "Unknown switch event %0x02X", keycode);
+	}
+	return false;
+}
+
+static bool handle_symbol_key(struct bk_i2c_data *kbd, u8 keycode)
+{
+	struct keymap_def *keymap = &kbd->keymaps[BK_KEY(keycode)];
+
+	if (keymap->symbol_event_code != KEY_RESERVED) {
+		if (kbd->symbol_states[BK_KEY(keycode)] == false) {
+			input_report_key(kbd->idev, keymap->normal_event_code, 0);
+
+			dev_dbg(&kbd->cli->dev,
+				"mode changed, normal key %02x(%02x) released\n",
+				BK_KEY(keycode), keymap->normal_event_code);
+		}
+
+		input_report_key(kbd->idev,
+			keymap->symbol_event_code, BK_IS_PRESSED(keycode));
+
+		kbd->symbol_states[BK_KEY(keycode)]  = BK_IS_PRESSED(keycode);
+
+		dev_dbg(&kbd->cli->dev, "symbol key %02x(%02x) %s\n",
+			BK_KEY(keycode), keymap->symbol_event_code,
+			BK_IS_PRESSED(keycode) ? "pressed": "released");
+
+		return true;
+	} else {
+		return false;
+	}
+}
+
+static bool handle_normal_key(struct bk_i2c_data *kbd, u8 keycode)
+{
+	struct keymap_def *keymap = &kbd->keymaps[BK_KEY(keycode)];
+
+	if (keymap->normal_event_code != KEY_RESERVED) {
+		if (kbd->symbol_states[BK_KEY(keycode)] == true) {
+			input_report_key(kbd->idev, keymap->symbol_event_code, 0);
+
+			dev_dbg(&kbd->cli->dev,
+				"mode changed, symbol key %02x(%02x) released\n",
+				BK_KEY(keycode), keymap->symbol_event_code);
+		}
+
+		input_report_key(kbd->idev,
+			keymap->normal_event_code, BK_IS_PRESSED(keycode));
+
+		kbd->symbol_states[BK_KEY(keycode)] = false;
+
+		dev_dbg(&kbd->cli->dev, "normal key %02x(%02x) %s\n",
+			BK_KEY(keycode), keymap->normal_event_code,
+			BK_IS_PRESSED(keycode) ? "pressed": "released");
+
+		return true;
+	} else {
+		return false;
+	}
+}
 
 static bool detect_key(struct bk_i2c_data *kbd, u8 keycode)
 {
-	int i;
-	if (BK_IS_SWITCH(keycode)) {
-		bool sw_on = BK_SWITCH_ON(keycode);
-		unsigned int sw_code;
-		switch (BK_SW_CODE(keycode)) {
-		case BK_SW_LCD_TRANSFORMING_TO_TABLET:
-			if (!sw_on) {
-				kbd->closing = false;
-			}
-			return true;
-		case BK_SW_LCD_TRANSFORMING_TO_CLOSED:
-			if (sw_on) {
-				kbd->closing = true;
-			}
-			return true;
+	if (BK_IS_SWITCH(keycode))
+		return handle_switch(kbd, keycode);
 
-		case BK_SW_LCD_FULLY_TRANSFORMED:
-			sw_code = (kbd->closing) ? SW_LID : SW_TABLET_MODE;
-			input_report_switch(kbd->idev, sw_code, sw_on);
-			return true;
-
-		case BK_SW_USB_VBUS:
-			input_report_switch(kbd->idev, SW_DOCK, sw_on);
-			return true;
-		default:
-			dev_dbg(&kbd->cli->dev, "Unknown switch event %0x02X",
-				keycode);
-		}
-		return false;
-	}
-
-	if ((keycode & 0x3f) == (u8)(kbd->symbol_keycode)) {
+	if (BK_KEY(keycode) == (u8)kbd->symbol_keycode) {
 		if (BK_IS_PRESSED(keycode)) {
 			dev_dbg(&kbd->cli->dev, "symbol pressed!\n");
-			kbd->symbol = true;
+			kbd->symbol_mode = true;
 		} else {
 			dev_dbg(&kbd->cli->dev, "symbol released!\n");
-			kbd->symbol = false;
+			kbd->symbol_mode = false;
 		}
 		return true;
 	}
 
-	if (kbd->symbol) {
-		if ((BK_IS_PRESSED(keycode) == 0) &&
-				(kbd->symbol_flag[keycode & 0x3f] == false)) {
-			for (i = 0; i < kbd->kmlen; i++) {
-				if ((keycode & 0x3f) == kbd->km[i].brain_keycode) {
-					dev_dbg(&kbd->cli->dev,
-						"release normal key %02x\n", keycode & 0x3f);
-					input_report_key(
-						kbd->idev,
-						kbd->km[i].kernel_keycode,
-						BK_IS_PRESSED(keycode));
-					return true;
-				}
-			}
-		}
-
-		for (i = 0; i < kbd->kmlen_symbol; i++) {
-			if ((keycode & 0x3f) ==
-			    kbd->km_symbol[i].brain_keycode) {
-				dev_dbg(&kbd->cli->dev,
-					"symbol: %s %02x\n",
-					BK_IS_PRESSED(keycode) ? "pressed" : "released",
-					kbd->km_symbol[i].brain_keycode);
-				input_report_key(
-					kbd->idev,
-					kbd->km_symbol[i].kernel_keycode,
-					BK_IS_PRESSED(keycode));
-				kbd->symbol_flag[keycode & 0x3f] = BK_IS_PRESSED(keycode);
-				return true;
-			}
-		}
-	} else {
-		if ((BK_IS_PRESSED(keycode) == 0) &&
-				(kbd->symbol_flag[keycode & 0x3f] == true)) {
-			for (i = 0; i < kbd->kmlen_symbol; i++) {
-				if ((keycode & 0x3f) == kbd->km_symbol[i].brain_keycode) {
-					dev_dbg(&kbd->cli->dev,
-						"release symbol key %02x\n", keycode & 0x3f);
-					input_report_key(
-						kbd->idev,
-						kbd->km_symbol[i].kernel_keycode,
-						BK_IS_PRESSED(keycode));
-					return true;
-				}
-			}
-		}
-
-		for (i = 0; i < kbd->kmlen; i++) {
-			if ((keycode & 0x3f) == kbd->km[i].brain_keycode) {
-				dev_dbg(&kbd->cli->dev,
-					"normal: %s %02x\n",
-					BK_IS_PRESSED(keycode) ? "pressed" : "released",
-					kbd->km[i].brain_keycode);
-				input_report_key(kbd->idev,
-						 kbd->km[i].kernel_keycode,
-						 BK_IS_PRESSED(keycode));
-				kbd->symbol_flag[keycode & 0x3f] = false;
-				return true;
-			}
-		}
-	}
-	return false;
+	if (kbd->symbol_mode)
+		return handle_symbol_key(kbd, keycode);
+	else
+		return handle_normal_key(kbd, keycode);
 }
 
 static irqreturn_t bk_i2c_irq_handler(int irq, void *devid)
@@ -185,14 +187,14 @@ static irqreturn_t bk_i2c_irq_handler(int irq, void *devid)
 
 	if (n < 1) {
 		goto done;
-	} else if (n > 3) {
+	} else if (n > BK_N_ROLL_MAX) {
 		dev_dbg(&kbd->cli->dev,
 			"invalid sequence\n");
-		n = 3;
+		n = BK_N_ROLL_MAX;
 	}
 	if (!detect_key(kbd, k1)) {
 		dev_dbg(&kbd->cli->dev, "unknown key was pressed: k1=%02x\n",
-			(k1 & 0x3f));
+			BK_KEY(k1));
 	}
 	if (n < 2) {
 		goto done;
@@ -200,8 +202,7 @@ static irqreturn_t bk_i2c_irq_handler(int irq, void *devid)
 
 	raw = i2c_smbus_read_word_swapped(kbd->cli, BK_CMD_KEYCODE);
 	if (raw < 0) {
-		dev_err(&kbd->cli->dev, "failed to read 2nd/3rd:%x\n",
-			raw);
+		dev_err(&kbd->cli->dev, "failed to read 2nd/3rd:%x\n", raw);
 		goto err;
 	}
 
@@ -211,7 +212,7 @@ static irqreturn_t bk_i2c_irq_handler(int irq, void *devid)
 	dev_dbg(&kbd->cli->dev, "k2=%02x, k3=%02x\n", k2, k3);
 	if (!detect_key(kbd, k2)) {
 		dev_dbg(&kbd->cli->dev, "unknown key was pressed: k2=%02x\n",
-			k2 & 0x3f);
+			BK_KEY(k2));
 	}
 
 	if (n < 3) {
@@ -219,7 +220,7 @@ static irqreturn_t bk_i2c_irq_handler(int irq, void *devid)
 	}
 	if (!detect_key(kbd, k3)) {
 		dev_dbg(&kbd->cli->dev, "unknown key was pressed: k3=%02x\n",
-			k3 & 0x3f);
+			BK_KEY(k3));
 	}
 done:
 	input_sync(kbd->idev);
@@ -254,15 +255,13 @@ static int bk_i2c_probe(struct i2c_client *cli, const struct i2c_device_id *id)
 		return -EINVAL;
 	}
 
-	len /= sizeof(u32) * cells;
-	kbd->kmlen = len;
-
-	kbd->km = devm_kzalloc(&cli->dev, sizeof(struct keymap_def) * len,
-			       GFP_KERNEL);
-	if (!kbd->km) {
-		return -ENOMEM;
+	for (i = 0; i < BK_KEYCODE_MAX; i++) {
+		kbd->keymaps[i].normal_event_code = KEY_RESERVED;
+		kbd->keymaps[i].symbol_event_code = KEY_RESERVED;
+		kbd->symbol_states[i] = false;
 	}
 
+	len /= sizeof(u32) * cells;
 	for (i = 0; i < len; i++) {
 		offset = i * cells;
 		if (of_property_read_u32_index(cli->dev.of_node, "keymap",
@@ -277,10 +276,15 @@ static int bk_i2c_probe(struct i2c_client *cli, const struct i2c_device_id *id)
 				"could not read DT property (kernel keycode)\n");
 			return -EINVAL;
 		}
-		kbd->km[i].brain_keycode = brain_keycode;
-		kbd->km[i].kernel_keycode = kernel_keycode;
-		dev_dbg(&cli->dev, "normal: brain: %02x, kernel: %02x",
-			brain_keycode, kernel_keycode);
+
+		if (brain_keycode <= BK_KEYCODE_MAX) {
+			kbd->keymaps[brain_keycode].normal_event_code = kernel_keycode;
+
+			dev_dbg(&cli->dev, "normal: brain: %02x, kernel: %02x",
+				brain_keycode, kernel_keycode);
+		} else {
+			dev_err(&cli->dev, "invalid keycode: %02x\n", brain_keycode);
+		}
 	}
 
 	if (!of_get_property(cli->dev.of_node, "keymap-symbol", &len)) {
@@ -289,14 +293,6 @@ static int bk_i2c_probe(struct i2c_client *cli, const struct i2c_device_id *id)
 	}
 
 	len /= sizeof(u32) * cells;
-	kbd->kmlen_symbol = len;
-
-	kbd->km_symbol = devm_kzalloc(
-		&cli->dev, sizeof(struct keymap_def) * len, GFP_KERNEL);
-	if (!kbd->km_symbol) {
-		return -ENOMEM;
-	}
-
 	for (i = 0; i < len; i++) {
 		offset = i * cells;
 		if (of_property_read_u32_index(cli->dev.of_node,
@@ -313,10 +309,14 @@ static int bk_i2c_probe(struct i2c_client *cli, const struct i2c_device_id *id)
 				"could not read DT property (kernel keycode)\n");
 			return -EINVAL;
 		}
-		kbd->km_symbol[i].brain_keycode = brain_keycode;
-		kbd->km_symbol[i].kernel_keycode = kernel_keycode;
-		dev_dbg(&cli->dev, "symbol: brain: %02x, kernel: %02x",
-			brain_keycode, kernel_keycode);
+		if (brain_keycode <= BK_KEYCODE_MAX) {
+			kbd->keymaps[brain_keycode].symbol_event_code = kernel_keycode;
+
+			dev_dbg(&cli->dev, "symbol: brain: %02x, kernel: %02x",
+				brain_keycode, kernel_keycode);
+		} else {
+			dev_err(&cli->dev, "invalid keycode: %02x\n", brain_keycode);
+		}
 	}
 
 	kbd->cli = cli;
@@ -333,19 +333,16 @@ static int bk_i2c_probe(struct i2c_client *cli, const struct i2c_device_id *id)
 
 	__set_bit(EV_REP, kbd->idev->evbit); /* autorepeat */
 
-	for (i = 0; i < kbd->kmlen; i++) {
-		input_set_capability(kbd->idev, EV_KEY,
-				     kbd->km[i].kernel_keycode);
-	}
+	for (i = 0; i < BK_KEYCODE_MAX; i++) {
+		if (kbd->keymaps[i].normal_event_code != KEY_RESERVED)
+			input_set_capability(kbd->idev, EV_KEY,
+				kbd->keymaps[i].normal_event_code);
 
-	for (i = 0; i < kbd->kmlen_symbol; i++) {
-		input_set_capability(kbd->idev, EV_KEY,
-				     kbd->km_symbol[i].kernel_keycode);
+		if (kbd->keymaps[i].symbol_event_code != KEY_RESERVED)
+			input_set_capability(kbd->idev, EV_KEY,
+				kbd->keymaps[i].symbol_event_code);
 	}
 	kbd->closing = false;
-	for (i = 0; i < ARRAY_SIZE(kbd->symbol_flag); i++) {
-		kbd->symbol_flag[i] = false;
-	}
 	input_set_capability(kbd->idev, EV_SW, SW_LID);
 	input_set_capability(kbd->idev, EV_SW, SW_TABLET_MODE);
 	input_set_capability(kbd->idev, EV_SW, SW_DOCK);
