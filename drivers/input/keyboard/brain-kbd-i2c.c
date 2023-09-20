@@ -89,56 +89,54 @@ static bool handle_symbol_key(struct bk_i2c_data *kbd, u8 keycode)
 {
 	struct keymap_def *keymap = &kbd->keymaps[BK_KEY(keycode)];
 
-	if (keymap->symbol_event_code != KEY_RESERVED) {
-		if (kbd->symbol_states[BK_KEY(keycode)] == false) {
-			input_report_key(kbd->idev, keymap->normal_event_code, 0);
-
-			dev_dbg(&kbd->cli->dev,
-				"mode changed, normal key %02x(%02x) released\n",
-				BK_KEY(keycode), keymap->normal_event_code);
-		}
-
-		input_report_key(kbd->idev,
-			keymap->symbol_event_code, BK_IS_PRESSED(keycode));
-
-		kbd->symbol_states[BK_KEY(keycode)]  = BK_IS_PRESSED(keycode);
-
-		dev_dbg(&kbd->cli->dev, "symbol key %02x(%02x) %s\n",
-			BK_KEY(keycode), keymap->symbol_event_code,
-			BK_IS_PRESSED(keycode) ? "pressed": "released");
-
-		return true;
-	} else {
+	if (keymap->symbol_event_code == KEY_RESERVED)
 		return false;
+
+	if (kbd->symbol_states[BK_KEY(keycode)] == false) {
+		input_report_key(kbd->idev, keymap->normal_event_code, 0);
+
+		dev_dbg(&kbd->cli->dev,
+			"mode changed, normal key %02x(%02x) released\n",
+			BK_KEY(keycode), keymap->normal_event_code);
 	}
+
+	input_report_key(kbd->idev,
+		keymap->symbol_event_code, BK_IS_PRESSED(keycode));
+
+	kbd->symbol_states[BK_KEY(keycode)]  = BK_IS_PRESSED(keycode);
+
+	dev_dbg(&kbd->cli->dev, "symbol key %02x(%02x) %s\n",
+		BK_KEY(keycode), keymap->symbol_event_code,
+		BK_IS_PRESSED(keycode) ? "pressed": "released");
+
+	return true;
 }
 
 static bool handle_normal_key(struct bk_i2c_data *kbd, u8 keycode)
 {
 	struct keymap_def *keymap = &kbd->keymaps[BK_KEY(keycode)];
 
-	if (keymap->normal_event_code != KEY_RESERVED) {
-		if (kbd->symbol_states[BK_KEY(keycode)] == true) {
-			input_report_key(kbd->idev, keymap->symbol_event_code, 0);
-
-			dev_dbg(&kbd->cli->dev,
-				"mode changed, symbol key %02x(%02x) released\n",
-				BK_KEY(keycode), keymap->symbol_event_code);
-		}
-
-		input_report_key(kbd->idev,
-			keymap->normal_event_code, BK_IS_PRESSED(keycode));
-
-		kbd->symbol_states[BK_KEY(keycode)] = false;
-
-		dev_dbg(&kbd->cli->dev, "normal key %02x(%02x) %s\n",
-			BK_KEY(keycode), keymap->normal_event_code,
-			BK_IS_PRESSED(keycode) ? "pressed": "released");
-
-		return true;
-	} else {
+	if (keymap->normal_event_code == KEY_RESERVED)
 		return false;
+
+	if (kbd->symbol_states[BK_KEY(keycode)] == true) {
+		input_report_key(kbd->idev, keymap->symbol_event_code, 0);
+
+		dev_dbg(&kbd->cli->dev,
+			"mode changed, symbol key %02x(%02x) released\n",
+			BK_KEY(keycode), keymap->symbol_event_code);
 	}
+
+	input_report_key(kbd->idev,
+		keymap->normal_event_code, BK_IS_PRESSED(keycode));
+
+	kbd->symbol_states[BK_KEY(keycode)] = false;
+
+	dev_dbg(&kbd->cli->dev, "normal key %02x(%02x) %s\n",
+		BK_KEY(keycode), keymap->normal_event_code,
+		BK_IS_PRESSED(keycode) ? "pressed": "released");
+
+	return true;
 }
 
 static bool detect_key(struct bk_i2c_data *kbd, u8 keycode)
