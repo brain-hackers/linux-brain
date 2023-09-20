@@ -25,18 +25,20 @@
 #define BK_KEY(val) ((val) & 0x3f)
 #define BK_IS_PRESSED(val) ((~val & 0x40) >> 6)
 
-#define BK_IS_SWITCH(val) (((val)&0x80) != 0)
+#define BK_IS_SWITCH(val) (((val) & 0x80) != 0)
 #define BK_SW_CODE(val) (((val) >> 1) & 0x1F)
-#define BK_SWITCH_ON(val) (((val)&1) == 0)
+#define BK_SWITCH_ON(val) (((val) & 1) == 0)
 
 #define BK_KEYCODE_MAX (64)
 #define BK_N_ROLL_MAX (3)
 
-enum { BK_SW_LCD_TRANSFORMING_TO_TABLET = 3,
-       BK_SW_UNKNOWN4,
-       BK_SW_USB_VBUS,
-       BK_SW_LCD_FULLY_TRANSFORMED,
-       BK_SW_LCD_TRANSFORMING_TO_CLOSED };
+enum {
+	BK_SW_LCD_TRANSFORMING_TO_TABLET = 3,
+	BK_SW_UNKNOWN4,
+	BK_SW_USB_VBUS,
+	BK_SW_LCD_FULLY_TRANSFORMED,
+	BK_SW_LCD_TRANSFORMING_TO_CLOSED
+};
 
 struct keymap_def {
 	unsigned int normal_event_code;
@@ -100,14 +102,14 @@ static bool handle_symbol_key(struct bk_i2c_data *kbd, u8 keycode)
 			BK_KEY(keycode), keymap->normal_event_code);
 	}
 
-	input_report_key(kbd->idev,
-		keymap->symbol_event_code, BK_IS_PRESSED(keycode));
+	input_report_key(kbd->idev, keymap->symbol_event_code,
+			 BK_IS_PRESSED(keycode));
 
-	kbd->symbol_states[BK_KEY(keycode)]  = BK_IS_PRESSED(keycode);
+	kbd->symbol_states[BK_KEY(keycode)] = BK_IS_PRESSED(keycode);
 
-	dev_dbg(&kbd->cli->dev, "symbol key %02x(%02x) %s\n",
-		BK_KEY(keycode), keymap->symbol_event_code,
-		BK_IS_PRESSED(keycode) ? "pressed": "released");
+	dev_dbg(&kbd->cli->dev, "symbol key %02x(%02x) %s\n", BK_KEY(keycode),
+		keymap->symbol_event_code,
+		BK_IS_PRESSED(keycode) ? "pressed" : "released");
 
 	return true;
 }
@@ -127,14 +129,14 @@ static bool handle_normal_key(struct bk_i2c_data *kbd, u8 keycode)
 			BK_KEY(keycode), keymap->symbol_event_code);
 	}
 
-	input_report_key(kbd->idev,
-		keymap->normal_event_code, BK_IS_PRESSED(keycode));
+	input_report_key(kbd->idev, keymap->normal_event_code,
+			 BK_IS_PRESSED(keycode));
 
 	kbd->symbol_states[BK_KEY(keycode)] = false;
 
-	dev_dbg(&kbd->cli->dev, "normal key %02x(%02x) %s\n",
-		BK_KEY(keycode), keymap->normal_event_code,
-		BK_IS_PRESSED(keycode) ? "pressed": "released");
+	dev_dbg(&kbd->cli->dev, "normal key %02x(%02x) %s\n", BK_KEY(keycode),
+		keymap->normal_event_code,
+		BK_IS_PRESSED(keycode) ? "pressed" : "released");
 
 	return true;
 }
@@ -186,8 +188,7 @@ static irqreturn_t bk_i2c_irq_handler(int irq, void *devid)
 	if (n < 1) {
 		goto done;
 	} else if (n > BK_N_ROLL_MAX) {
-		dev_dbg(&kbd->cli->dev,
-			"invalid sequence\n");
+		dev_dbg(&kbd->cli->dev, "invalid sequence\n");
 		n = BK_N_ROLL_MAX;
 	}
 	if (!detect_key(kbd, k1)) {
@@ -276,12 +277,14 @@ static int bk_i2c_probe(struct i2c_client *cli, const struct i2c_device_id *id)
 		}
 
 		if (brain_keycode <= BK_KEYCODE_MAX) {
-			kbd->keymaps[brain_keycode].normal_event_code = kernel_keycode;
+			kbd->keymaps[brain_keycode].normal_event_code =
+				kernel_keycode;
 
 			dev_dbg(&cli->dev, "normal: brain: %02x, kernel: %02x",
 				brain_keycode, kernel_keycode);
 		} else {
-			dev_err(&cli->dev, "invalid keycode: %02x\n", brain_keycode);
+			dev_err(&cli->dev, "invalid keycode: %02x\n",
+				brain_keycode);
 		}
 	}
 
@@ -308,12 +311,14 @@ static int bk_i2c_probe(struct i2c_client *cli, const struct i2c_device_id *id)
 			return -EINVAL;
 		}
 		if (brain_keycode <= BK_KEYCODE_MAX) {
-			kbd->keymaps[brain_keycode].symbol_event_code = kernel_keycode;
+			kbd->keymaps[brain_keycode].symbol_event_code =
+				kernel_keycode;
 
 			dev_dbg(&cli->dev, "symbol: brain: %02x, kernel: %02x",
 				brain_keycode, kernel_keycode);
 		} else {
-			dev_err(&cli->dev, "invalid keycode: %02x\n", brain_keycode);
+			dev_err(&cli->dev, "invalid keycode: %02x\n",
+				brain_keycode);
 		}
 	}
 
@@ -334,11 +339,11 @@ static int bk_i2c_probe(struct i2c_client *cli, const struct i2c_device_id *id)
 	for (i = 0; i < BK_KEYCODE_MAX; i++) {
 		if (kbd->keymaps[i].normal_event_code != KEY_RESERVED)
 			input_set_capability(kbd->idev, EV_KEY,
-				kbd->keymaps[i].normal_event_code);
+					     kbd->keymaps[i].normal_event_code);
 
 		if (kbd->keymaps[i].symbol_event_code != KEY_RESERVED)
 			input_set_capability(kbd->idev, EV_KEY,
-				kbd->keymaps[i].symbol_event_code);
+					     kbd->keymaps[i].symbol_event_code);
 	}
 	kbd->closing = false;
 	input_set_capability(kbd->idev, EV_SW, SW_LID);
