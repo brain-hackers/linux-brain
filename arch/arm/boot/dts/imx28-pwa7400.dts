@@ -7,11 +7,8 @@
 #include "imx28-brain.dtsi"
 
 / {
-	// Compatible with:
-	//     PW-G4200, PW-G5200, PW-G5300, PW-A7200, PW-A7300,
-	//     PW-A9100, PW-A9200, PW-A9300
-	model = "SHARP Brain PW-A7200 series";
-	compatible = "sharp,pw-a7200", "sharp,brain", "fsl,imx28";
+	model = "SHARP Brain PW-A7400";
+	compatible = "sharp,pw-a7400", "sharp,brain", "fsl,imx28";
 };
 
 &ssp2 {
@@ -22,16 +19,12 @@
 	status = "disabled";
 };
 
-&i2c1 {
-	status = "disabled";
-};
-
 &pwm {
 	pinctrl-0 = <&lcd_backlight_pins &slcd_backlight_pin &buzzer_pins>;
 };
 
 &duart {
-	pinctrl-0 = <&duart_pins_a>;
+	status = "disabled";
 };
 
 &brainlcd {
@@ -54,7 +47,7 @@
 	status = "okay";
 };
 
-&keyboard_i2c_2g {
+&keyboard_i2c {
 	status = "okay";
 	symbol-keycode = <0x0c>;  /* Page Down */
 	keymap =
