@@ -14,9 +14,13 @@
 #include <linux/input.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
+#include <linux/kernel.h>
+#include <linux/kobject.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
+#include <linux/sysfs.h>
+
 
 #define BRAIN_KBD_I2C_DEV_NAME "brain-kbd-i2c"
 
@@ -45,6 +49,10 @@ struct keymap_def {
 	unsigned int symbol_event_code;
 };
 
+static char enable_ctrl_toggle = false;
+static char enable_alt_toggle = false;
+static char enable_shift_toggle = false;
+
 struct bk_i2c_data {
 	struct i2c_client *cli;
 	struct input_dev *idev;
@@ -52,8 +60,26 @@ struct bk_i2c_data {
 
 	bool symbol_states[BK_KEYCODE_MAX];
 	bool symbol_mode;
+	bool symbol_mode_toggle;
 	u32 symbol_keycode;
 	bool closing;
+};
+
+static ssize_t symbol_activated_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct input_dev *idev = container_of(dev, struct input_dev, dev);
+	struct bk_i2c_data *kbd = input_get_drvdata(idev);
+	return sprintf(buf, "%d\n", kbd->symbol_mode_toggle ? 1 : 0);
+}
+static DEVICE_ATTR_RO(symbol_activated);
+
+static struct attribute *brain_kbd_attrs[] = {
+	&dev_attr_symbol_activated.attr,
+	NULL,
+};
+
+static struct attribute_group brain_kbd_group = {
+	.attrs = brain_kbd_attrs,
 };
 
 static bool handle_switch(struct bk_i2c_data *kbd, u8 keycode)
@@ -150,6 +176,8 @@ static bool detect_key(struct bk_i2c_data *kbd, u8 keycode)
 		if (BK_IS_PRESSED(keycode)) {
 			dev_dbg(&kbd->cli->dev, "symbol pressed!\n");
 			kbd->symbol_mode = true;
+			kbd->symbol_mode_toggle = !kbd->symbol_mode_toggle;
+			sysfs_notify(&kbd->idev->dev.kobj, NULL, "symbol_activated");
 		} else {
 			dev_dbg(&kbd->cli->dev, "symbol released!\n");
 			kbd->symbol_mode = false;
@@ -333,6 +361,7 @@ static int bk_i2c_probe(struct i2c_client *cli, const struct i2c_device_id *id)
 
 	kbd->idev->name = BRAIN_KBD_I2C_DEV_NAME;
 	kbd->idev->id.bustype = BUS_I2C;
+	input_set_drvdata(kbd->idev, kbd);
 
 	__set_bit(EV_REP, kbd->idev->evbit); /* autorepeat */
 
@@ -392,6 +421,13 @@ static int bk_i2c_probe(struct i2c_client *cli, const struct i2c_device_id *id)
 		dev_err(&cli->dev, "failed to request irq: %d\n", err);
 		return err;
 	}
+
+	err = sysfs_create_group(&kbd->idev->dev.kobj, &brain_kbd_group);
+	if (err) {
+		dev_err(&cli->dev, "failed to create a sysfs group: %d\n", err);
+		return err;
+	}
+
 	return 0;
 }
 
