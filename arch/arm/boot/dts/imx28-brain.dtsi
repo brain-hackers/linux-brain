@@ -157,7 +157,7 @@
 					reg = <0>;
 					fsl,pinmux-ids = <
 						MX28_PAD_AUART1_RX__PWM_0
-						MX28_PAD_AUART1_TX__PWM_1
+						MX28_PAD_AUART1_TX__GPIO_3_5
 					>;
 					fsl,drive-strength = <MXS_DRIVE_4mA>;
 					fsl,voltage = <MXS_VOLTAGE_HIGH>;
@@ -375,7 +375,8 @@
 
 	backlight_display: backlight@0 {
 		compatible = "pwm-backlight";
-		pwms = <&pwm 0 50000>, <&pwm 1 50000>;
+		pwms = <&pwm 0 50000>;
+		enable_gpios = <&gpio3 5 GPIO_ACTIVE_HIGH>;
 		brightness-levels = <0 4 8 16 32 64 128 255>;
 		default-brightness-level = <7>;
 	};
