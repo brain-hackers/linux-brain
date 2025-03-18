@@ -12,7 +12,6 @@
 #include <linux/device.h>
 #include <linux/gpio.h>
 #include <linux/input.h>
-#include <linux/input-polldev.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -25,7 +24,7 @@
 #define BK_IS_PRESSED(val) ((~val & 0x40) >> 6)
 
 struct bk_gpio_data {
-	struct input_polled_dev *polldev;
+	struct input_dev *inputdev;
 	struct gpio_desc* in[8];
 	struct gpio_desc* out[7];
 	unsigned int km[7][7];
@@ -40,10 +39,10 @@ struct bk_gpio_data {
 	bool pressed[7][7];
 };
 
-static void bk_gpio_read_keys(struct input_polled_dev *polldev, ulong* result)
+static void bk_gpio_read_keys(struct input_dev *inputdev, ulong* result)
 {
-	struct bk_gpio_data *kbd = polldev->private;
-	struct device *dev = &polldev->input->dev;
+	struct bk_gpio_data *kbd = input_get_drvdata(inputdev);
+	struct device *dev = &inputdev->dev;
 	int try, i, err;
 	ulong in[10][7];
 
@@ -86,14 +85,14 @@ static void bk_gpio_read_keys(struct input_polled_dev *polldev, ulong* result)
 	}
 }
 
-static void bk_gpio_poll(struct input_polled_dev *polldev)
+static void bk_gpio_poll(struct input_dev *inputdev)
 {
-	struct bk_gpio_data *kbd = polldev->private;
-	struct device *dev = &polldev->input->dev;
+	struct bk_gpio_data *kbd = input_get_drvdata(inputdev);
+	struct device *dev = &inputdev->dev;
 	int i, j, bank;
 	ulong in[7], agg;
 
-	bk_gpio_read_keys(polldev, in);
+	bk_gpio_read_keys(inputdev, in);
 
 	if (memcmp(in, kbd->last_in, sizeof(in)) == 0) {
 		goto skip;
@@ -127,7 +126,7 @@ static void bk_gpio_poll(struct input_polled_dev *polldev)
 						} else {
 							dev_dbg(dev, "P: %04x\n", kbd->km[i][j]);
 							input_report_key(
-								polldev->input,
+								inputdev,
 								kbd->symbol ? kbd->km_symbol[i][j] : kbd->km[i][j],
 								1
 							);
@@ -150,14 +149,14 @@ static void bk_gpio_poll(struct input_polled_dev *polldev)
 					kbd->symbol = false;
 				} else {
 					dev_dbg(dev, "R: %04x\n", kbd->km[i][j]);
-					input_report_key(polldev->input, kbd->km[i][j], 0);
-					input_report_key(polldev->input, kbd->km_symbol[i][j], 0);
+					input_report_key(inputdev, kbd->km[i][j], 0);
+					input_report_key(inputdev, kbd->km_symbol[i][j], 0);
 				}
 			}
 		}
 	}
 
-	input_sync(polldev->input);
+	input_sync(inputdev);
 skip:
 	memcpy(kbd->last_in, in, sizeof(in));
 }
@@ -208,20 +207,19 @@ static int bk_gpio_probe(struct platform_device *pdev)
 
 	// Init input device
 
-	kbd->polldev = devm_input_allocate_polled_device(dev);
-	if (!kbd->polldev) {
+	kbd->inputdev = devm_input_allocate_device(dev);
+	if (!kbd->inputdev) {
 		dev_err(dev, "failed to allocate inpute device\n");
 		return -ENOMEM;
 	}
 
-	kbd->polldev->private = kbd;
-	kbd->polldev->poll = bk_gpio_poll;
-	kbd->polldev->poll_interval = 100;
-	kbd->polldev->input->name = DEV_NAME;
-	kbd->polldev->input->id.bustype = BUS_HOST;
+	input_set_drvdata(kbd->inputdev, kbd);
 
-	__set_bit(EV_KEY, kbd->polldev->input->evbit); /* FIXME: is it really necessary? */
-	__set_bit(EV_REP, kbd->polldev->input->evbit); /* autorepeat */
+	kbd->inputdev->name = DEV_NAME;
+	kbd->inputdev->id.bustype = BUS_HOST;
+
+	__set_bit(EV_KEY, kbd->inputdev->evbit); /* FIXME: is it really necessary? */
+	__set_bit(EV_REP, kbd->inputdev->evbit); /* autorepeat */
 
 	// Parse keymap
 
@@ -255,7 +253,7 @@ static int bk_gpio_probe(struct platform_device *pdev)
 		dev_dbg(dev, "normal: brain: %x %x, kernel: %x",
 			keydef[0], keydef[1], keydef[2]);
 
-		input_set_capability(kbd->polldev->input, EV_KEY, keydef[2]);
+		input_set_capability(kbd->inputdev, EV_KEY, keydef[2]);
 	}
 
 	if (!of_get_property(dev->of_node, "keymap-symbol", &len)) {
@@ -287,7 +285,7 @@ static int bk_gpio_probe(struct platform_device *pdev)
 		dev_dbg(dev, "symbol: brain: %02x %02x, kernel: %02x",
 			keydef[0], keydef[1], keydef[2]);
 
-		input_set_capability(kbd->polldev->input, EV_KEY, keydef[2]);
+		input_set_capability(kbd->inputdev, EV_KEY, keydef[2]);
 	}
 
 	if (of_property_read_u32_index(dev->of_node, "symbol-key", 0, &kbd->sym_key_bank)) {
@@ -308,7 +306,16 @@ static int bk_gpio_probe(struct platform_device *pdev)
 		}
 	}
 
-	err = input_register_polled_device(kbd->polldev);
+	err = input_setup_polling(kbd->inputdev, bk_gpio_poll);
+	if (err) {
+		dev_err(dev, "failed to setupp poling func: %d\n",
+			err);
+		return err;
+	}
+
+	input_set_poll_interval(kbd->inputdev, 100);
+
+	err = input_register_device(kbd->inputdev);
 	if (err) {
 		dev_err(dev, "failed to register input device: %d\n",
 			err);
