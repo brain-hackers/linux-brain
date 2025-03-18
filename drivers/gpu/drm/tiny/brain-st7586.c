@@ -11,6 +11,7 @@
 #include <linux/delay.h>
 #include <linux/dma-buf.h>
 #include <linux/gpio/consumer.h>
+#include <linux/media-bus-format.h>
 #include <linux/module.h>
 #include <linux/property.h>
 #include <linux/spi/spi.h>
@@ -19,14 +20,16 @@
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_damage_helper.h>
 #include <drm/drm_drv.h>
-#include <drm/drm_fb_cma_helper.h>
+#include <drm/drm_fb_dma_helper.h>
 #include <drm/drm_fb_helper.h>
 #include <drm/drm_format_helper.h>
-#include <drm/drm_gem_cma_helper.h>
+#include <drm/drm_framebuffer.h>
+#include <drm/drm_gem_atomic_helper.h>
+#include <drm/drm_gem_dma_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
+#include <drm/drm_managed.h>
 #include <drm/drm_mipi_dbi.h>
 #include <drm/drm_rect.h>
-#include <drm/drm_vblank.h>
 
 /* controller-specific commands */
 #define ST7586_DISP_MODE_GRAY	0x38
@@ -75,12 +78,15 @@ static void st7586_xrgb8888_to_gray332_word(u16 *dst, void *vaddr,
 	unsigned int x, y;
 	u8 *src, *buf;
 	u16 packed;
+	struct iosys_map dst_map, vmap;
 
 	buf = kmalloc(len, GFP_KERNEL);
 	if (!buf)
 		return;
 
-	drm_fb_xrgb8888_to_gray8(buf, vaddr, fb, clip);
+	iosys_map_set_vaddr(&dst_map, buf);
+	iosys_map_set_vaddr(&vmap, vaddr);
+	drm_fb_xrgb8888_to_gray8(&dst_map, NULL, &vmap, fb, clip);
 	src = buf;
 
 	for (y = clip->y1; y < clip->y2; y++) {
@@ -106,9 +112,9 @@ static void st7586_xrgb8888_to_gray332_word(u16 *dst, void *vaddr,
 static int st7586_buf_copy(void *dst, struct drm_framebuffer *fb,
 			   struct drm_rect *clip)
 {
-	struct drm_gem_cma_object *cma_obj = drm_fb_cma_get_gem_obj(fb, 0);
-	struct dma_buf_attachment *import_attach = cma_obj->base.import_attach;
-	void *src = cma_obj->vaddr;
+	struct drm_gem_dma_object *dma_obj = drm_fb_dma_get_gem_obj(fb, 0);
+	struct dma_buf_attachment *import_attach = dma_obj->base.import_attach;
+	void *src = dma_obj->vaddr;
 	int ret = 0;
 
 	if (import_attach) {
@@ -132,9 +138,6 @@ static void st7586_fb_dirty(struct drm_framebuffer *fb, struct drm_rect *rect)
 	struct mipi_dbi_dev *dbidev = drm_to_mipi_dbi_dev(fb->dev);
 	struct mipi_dbi *dbi = &dbidev->dbi;
 	int start_col, end_col, start_page, end_page, len, idx, ret = 0;
-
-	if (!dbidev->enabled)
-		return;
 
 	if (!drm_dev_enter(fb->dev, &idx))
 		return;
@@ -193,18 +196,13 @@ static void st7586_pipe_update(struct drm_simple_display_pipe *pipe,
 			       struct drm_plane_state *old_state)
 {
 	struct drm_plane_state *state = pipe->plane.state;
-	struct drm_crtc *crtc = &pipe->crtc;
 	struct drm_rect rect;
+
+	if (!pipe->crtc.state->active)
+		return;
 
 	if (drm_atomic_helper_damage_merged(old_state, state, &rect))
 		st7586_fb_dirty(state->fb, &rect);
-
-	if (crtc->state->event) {
-		spin_lock_irq(&crtc->dev->event_lock);
-		drm_crtc_send_vblank_event(crtc, crtc->state->event);
-		spin_unlock_irq(&crtc->dev->event_lock);
-		crtc->state->event = NULL;
-	}
 }
 
 static void st7586_pipe_enable(struct drm_simple_display_pipe *pipe,
@@ -275,12 +273,11 @@ static void st7586_pipe_enable(struct drm_simple_display_pipe *pipe,
 	mipi_dbi_command(dbi, ST7586_SET_DISP_DUTY, 0x77);
 	mipi_dbi_command(dbi, ST7586_SET_OUTPUT_COM, BRAIN_PAGE_OFFSET);
 	mipi_dbi_command(dbi, ST7586_SET_PART_DISP, 0xa0);
-	mipi_dbi_command(dbi, MIPI_DCS_SET_PARTIAL_AREA, 0x00, 0x00, 0x00, 0x9f);
+	mipi_dbi_command(dbi, MIPI_DCS_SET_PARTIAL_ROWS, 0x00, 0x00, 0x00, 0x9f);
 	mipi_dbi_command(dbi, MIPI_DCS_EXIT_INVERT_MODE);
 
 	msleep(100);
 
-	dbidev->enabled = true;
 	st7586_fb_dirty(fb, &rect);
 
 	mipi_dbi_command(dbi, MIPI_DCS_SET_DISPLAY_ON);
@@ -301,11 +298,7 @@ static void st7586_pipe_disable(struct drm_simple_display_pipe *pipe)
 
 	DRM_DEBUG_KMS("\n");
 
-	if (!dbidev->enabled)
-		return;
-
 	mipi_dbi_command(&dbidev->dbi, MIPI_DCS_SET_DISPLAY_OFF);
-	dbidev->enabled = false;
 }
 
 static const u32 st7586_formats[] = {
@@ -316,20 +309,19 @@ static const struct drm_simple_display_pipe_funcs st7586_pipe_funcs = {
 	.enable		= st7586_pipe_enable,
 	.disable	= st7586_pipe_disable,
 	.update		= st7586_pipe_update,
-	.prepare_fb	= drm_gem_fb_simple_display_pipe_prepare_fb,
+	.prepare_fb	= drm_gem_simple_display_pipe_prepare_fb,
 };
 
 static const struct drm_display_mode st7586_mode = {
 	DRM_SIMPLE_MODE(240, 120, 51, 26),
 };
 
-DEFINE_DRM_GEM_CMA_FOPS(st7586_fops);
+DEFINE_DRM_GEM_DMA_FOPS(st7586_fops);
 
 static struct drm_driver st7586_driver = {
 	.driver_features	= DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC,
 	.fops			= &st7586_fops,
-	.release		= mipi_dbi_release,
-	DRM_GEM_CMA_VMAP_DRIVER_OPS,
+	DRM_GEM_DMA_DRIVER_OPS_VMAP,
 	.debugfs_init		= mipi_dbi_debugfs_init,
 	.name			= "brain-st7586",
 	.desc			= "Sitronix ST7586 for Sharp Brain 2nd generation SubLCD",
@@ -360,19 +352,13 @@ static int st7586_probe(struct spi_device *spi)
 	size_t bufsize;
 	int ret;
 
-	dbidev = kzalloc(sizeof(*dbidev), GFP_KERNEL);
-	if (!dbidev)
-		return -ENOMEM;
+	dbidev = devm_drm_dev_alloc(dev, &st7586_driver,
+		struct mipi_dbi_dev, drm);
+	if (IS_ERR(dbidev))
+		return PTR_ERR(dbidev);
 
 	dbi = &dbidev->dbi;
 	drm = &dbidev->drm;
-	ret = devm_drm_dev_init(dev, drm, &st7586_driver);
-	if (ret) {
-		kfree(dbidev);
-		return ret;
-	}
-
-	drm_mode_config_init(drm);
 
 	bufsize = (st7586_mode.vdisplay + 2) / 3 * st7586_mode.hdisplay;
 
@@ -410,14 +396,14 @@ static int st7586_probe(struct spi_device *spi)
 	return 0;
 }
 
-static int st7586_remove(struct spi_device *spi)
+static void st7586_remove(struct spi_device *spi)
 {
 	struct drm_device *drm = spi_get_drvdata(spi);
 
 	drm_dev_unplug(drm);
 	drm_atomic_helper_shutdown(drm);
 
-	return 0;
+	return;
 }
 
 static void st7586_shutdown(struct spi_device *spi)

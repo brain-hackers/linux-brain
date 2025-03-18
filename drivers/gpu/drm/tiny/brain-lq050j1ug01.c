@@ -20,6 +20,7 @@
 #include <linux/gpio.h>
 #include <linux/gpio/consumer.h>
 #include <linux/iopoll.h>
+#include <linux/media-bus-format.h>
 #include <linux/module.h>
 #include <linux/of_device.h>
 #include <linux/platform_device.h>
@@ -29,9 +30,11 @@
 #include <drm/drm_damage_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_fb_helper.h>
-#include <drm/drm_fb_cma_helper.h>
+#include <drm/drm_fb_dma_helper.h>
 #include <drm/drm_fourcc.h>
-#include <drm/drm_gem_cma_helper.h>
+#include <drm/drm_framebuffer.h>
+#include <drm/drm_gem_atomic_helper.h>
+#include <drm/drm_gem_dma_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_mipi_dbi.h>
 #include <drm/drm_modeset_helper.h>
@@ -399,7 +402,7 @@ static void brain_disable(struct drm_simple_display_pipe *pipe)
 }
 
 static void brain_fb_dirty_full(struct brain_drm_private *ili, struct drm_framebuffer *fb, struct drm_rect *rect) {
-	struct drm_gem_cma_object *cma_obj = drm_fb_cma_get_gem_obj(fb, 0);
+	struct drm_gem_dma_object *dma_obj = drm_fb_dma_get_gem_obj(fb, 0);
 	int idx;
 
 	u16 width = fb->width;
@@ -446,8 +449,8 @@ static void brain_fb_dirty_full(struct brain_drm_private *ili, struct drm_frameb
 	writel(CTRL_MASTER, ili->base + LCDC_CTRL + REG_SET);
 #endif
 
-	writel(cma_obj->paddr, ili->base + LCDC_V4_CUR_BUF);
-	writel(cma_obj->paddr, ili->base + LCDC_V4_NEXT_BUF);
+	writel(dma_obj->dma_addr, ili->base + LCDC_V4_CUR_BUF);
+	writel(dma_obj->dma_addr, ili->base + LCDC_V4_NEXT_BUF);
 	writel(TRANSFER_COUNT_SET_VCOUNT(height) | TRANSFER_COUNT_SET_HCOUNT(width),
 	       ili->base + LCDC_V4_TRANSFER_COUNT);
 	writel(CTRL_DATA_SELECT | CTRL_RUN, ili->base + LCDC_CTRL + REG_SET);
@@ -479,10 +482,10 @@ static const struct drm_simple_display_pipe_funcs brain_pipe_funcs = {
 	.enable = brain_enable,
 	.disable = brain_disable,
 	.update = brain_update,
-	.prepare_fb = drm_gem_fb_simple_display_pipe_prepare_fb,
+	.prepare_fb = drm_gem_simple_display_pipe_prepare_fb,
 };
 
-DEFINE_DRM_GEM_CMA_FOPS(brain_fops);
+DEFINE_DRM_GEM_DMA_FOPS(brain_fops);
 
 static int brain_connector_get_modes(struct drm_connector *connector)
 {
@@ -553,7 +556,7 @@ static const struct drm_mode_config_funcs brain_mode_config_funcs = {
 static struct drm_driver brain_driver = {
 	.driver_features	= DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC,
 	.fops			= &brain_fops,
-	DRM_GEM_CMA_VMAP_DRIVER_OPS,
+	DRM_GEM_DMA_DRIVER_OPS_VMAP,
 	.name			= "brain-2g",
 	.desc			= "Sharp LQ050J1UG01",
 	.date			= "20210417",

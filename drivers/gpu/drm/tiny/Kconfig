@@ -152,7 +152,7 @@ config TINYDRM_BRAIN
 	tristate "DRM support for ILI9805 display panels on Sharp Brain"
 	depends on DRM
 	select DRM_KMS_HELPER
-	select DRM_KMS_CMA_HELPER
+	select DRM_GEM_DMA_HELPER
 	select BACKLIGHT_CLASS_DEVICE
 	help
 	  DRM driver for the following Ilitek ILI9805 panels:
@@ -164,7 +164,7 @@ config TINYDRM_BRAIN_2G
 	tristate "DRM support for LQ050J1UG01 display panels on Sharp Brain"
 	depends on DRM
 	select DRM_KMS_HELPER
-	select DRM_KMS_CMA_HELPER
+	select DRM_GEM_DMA_HELPER
 	select BACKLIGHT_CLASS_DEVICE
 	help
 	  DRM driver for the following Sharp LQ050J1UG01 panels:
@@ -213,7 +213,7 @@ config TINYDRM_BRAIN_ST7586
 	tristate "DRM support for Sitronix ST7586 display panels on Sharp Brain"
 	depends on DRM && SPI
 	select DRM_KMS_HELPER
-	select DRM_KMS_CMA_HELPER
+	select DRM_GEM_DMA_HELPER
 	select DRM_MIPI_DBI
 	help
 	  DRM driver for the following Sitronix ST7586 panels:
