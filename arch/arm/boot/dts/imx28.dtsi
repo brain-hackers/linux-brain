@@ -1154,6 +1154,19 @@
 				reg = <0x80050000 0x2000>;
 				interrupts = <10 14 15 16 17 18 19
 						20 21 22 23 24 25>;
+				interrupt-names = "mxs-lradc-touchscreen",
+						"mxs-lradc-thresh0",
+						"mxs-lradc-thresh1",
+						"mxs-lradc-channel0",
+						"mxs-lradc-channel1",
+						"mxs-lradc-channel2",
+						"mxs-lradc-channel3",
+						"mxs-lradc-channel4",
+						"mxs-lradc-channel5",
+						"mxs-lradc-channel6",
+						"mxs-lradc-channel7",
+						"mxs-lradc-button0",
+						"mxs-lradc-button1";
 				status = "disabled";
 				clocks = <&clks 41>;
 				#io-channel-cells = <1>;
