@@ -606,7 +606,7 @@ static int mxs_lradc_ts_probe(struct platform_device *pdev)
 	struct device_node *node = dev->parent->of_node;
 	struct mxs_lradc *lradc = dev_get_drvdata(dev->parent);
 	struct mxs_lradc_ts *ts;
-	int ret, irq, virq, i;
+	int ret, irq, i;
 	u32 ts_wires = 0, adapt;
 
 	ts = devm_kzalloc(dev, sizeof(*ts), GFP_KERNEL);
@@ -671,15 +671,13 @@ static int mxs_lradc_ts_probe(struct platform_device *pdev)
 	mxs_lradc_ts_hw_init(ts);
 
 	for (i = 0; i < 3; i++) {
-		irq = platform_get_irq_byname(pdev, mxs_lradc_ts_irq_names[i]);
+		irq = of_irq_get_byname(node, mxs_lradc_ts_irq_names[i]);
 		if (irq < 0)
 			return irq;
 
-		virq = irq_of_parse_and_map(node, irq);
-
 		mxs_lradc_ts_stop(ts);
 
-		ret = devm_request_irq(dev, virq,
+		ret = devm_request_irq(dev, irq,
 				       mxs_lradc_ts_handle_irq,
 				       0, mxs_lradc_ts_irq_names[i], ts);
 		if (ret)
