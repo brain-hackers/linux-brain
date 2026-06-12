@@ -149,6 +149,24 @@ static void bk_gpio_poll(struct input_dev *inputdev)
 					}
 					kbd->pressed[i][j] = true;
 				} else {
+					/*
+					 * Key released while its bank is still
+					 * active (e.g. another key in the same
+					 * bank is held, as in a modifier chord).
+					 * Emit the release here; the bank-flush
+					 * branch below only runs once the WHOLE
+					 * bank goes idle, so without this a key
+					 * lifted mid-chord would stick.
+					 */
+					if (kbd->pressed[i][j]) {
+						if (i == kbd->sym_key_bank && j == kbd->sym_key_num) {
+							kbd->symbol = false;
+						} else {
+							dev_dbg(dev, "R: %04x\n", kbd->km[i][j]);
+							input_report_key(inputdev, kbd->km[i][j], 0);
+							input_report_key(inputdev, kbd->km_symbol[i][j], 0);
+						}
+					}
 					kbd->pressed[i][j] = false;
 				}
 			}
