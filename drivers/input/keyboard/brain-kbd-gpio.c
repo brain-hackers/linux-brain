@@ -33,6 +33,7 @@ struct bk_gpio_data {
 	int kmlen_symbol;
 	unsigned int sym_key_bank;
 	unsigned int sym_key_num;
+	unsigned int sym_event_code;
 
 	bool symbol;
 	ulong last_in[7];
@@ -133,6 +134,9 @@ static void bk_gpio_poll(struct input_dev *inputdev)
 						if (i == kbd->sym_key_bank && j == kbd->sym_key_num) {
 							dev_dbg(dev, "symbol\n");
 							kbd->symbol = true;
+							if (kbd->sym_event_code != KEY_RESERVED) {
+								input_report_key(inputdev, kbd->sym_event_code, 1);
+							}
 						} else {
 							dev_dbg(dev, "P: %04x\n", kbd->km[i][j]);
 							input_report_key(
@@ -156,6 +160,9 @@ static void bk_gpio_poll(struct input_dev *inputdev)
 					if (kbd->pressed[i][j]) {
 						if (i == kbd->sym_key_bank && j == kbd->sym_key_num) {
 							kbd->symbol = false;
+							if (kbd->sym_event_code != KEY_RESERVED) {
+								input_report_key(inputdev, kbd->sym_event_code, 0);
+							}
 						} else {
 							dev_dbg(dev, "R: %04x\n", kbd->km[i][j]);
 							input_report_key(inputdev, kbd->km[i][j], 0);
@@ -175,6 +182,9 @@ static void bk_gpio_poll(struct input_dev *inputdev)
 
 				if (i == kbd->sym_key_bank && j == kbd->sym_key_num) {
 					kbd->symbol = false;
+					if (kbd->sym_event_code != KEY_RESERVED) {
+						input_report_key(inputdev, kbd->sym_event_code, 0);
+					}
 				} else {
 					dev_dbg(dev, "R: %04x\n", kbd->km[i][j]);
 					input_report_key(inputdev, kbd->km[i][j], 0);
@@ -327,6 +337,21 @@ static int bk_gpio_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 	dev_dbg(dev, "sym_key_num = %d\n", kbd->sym_key_num);
+
+	/*
+	 * Optional: emit a dedicated key event when the Symbol (記号) key is
+	 * pressed/released so userland (e.g. an on-screen keymap overlay) can
+	 * detect the Symbol modifier being held. The Symbol key is otherwise
+	 * consumed internally to select the symbol keymap and emits no event.
+	 * Defaults to KEY_RESERVED (disabled) when the DT property is absent.
+	 */
+	if (of_property_read_u32(dev->of_node, "symbol-event-code", &kbd->sym_event_code)) {
+		kbd->sym_event_code = KEY_RESERVED;
+	}
+	if (kbd->sym_event_code != KEY_RESERVED) {
+		input_set_capability(kbd->inputdev, EV_KEY, kbd->sym_event_code);
+		dev_dbg(dev, "sym_event_code = %d\n", kbd->sym_event_code);
+	}
 
 	for (i = 0; i < 7; i++) {
 		for (j = 0; j < 7; j++) {
