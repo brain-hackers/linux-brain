@@ -48,6 +48,7 @@
 		<&gpio2 21 GPIO_ACTIVE_HIGH>,
 		<&gpio4 8 GPIO_ACTIVE_HIGH>;
 	symbol-key = <4 3>;
+	symbol-event-code = <KEY_F16>;
 	keymap =
 		/* Bank 0x01 */
 		<0 0 KEY_PAGEUP>,     /* Eiwa Waei */
