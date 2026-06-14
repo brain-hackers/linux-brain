@@ -48,15 +48,30 @@ static void bk_gpio_read_keys(struct input_dev *inputdev, ulong* result)
 
 	for (try = 0; try < ARRAY_SIZE(in); try++) {
 		for (i = 0; i < ARRAY_SIZE(in[0]); i++) {
-			gpiod_set_value(kbd->out[i], 1);
+			/*
+			 * Drive only the scanned column low and leave every
+			 * other column in high-impedance (input) mode. The
+			 * sense (row) lines are pulled up in the device tree,
+			 * so a pressed key pulls its row low. Keeping the other
+			 * columns hi-Z (instead of driving them low) prevents a
+			 * key held on another column from shorting a shared row
+			 * line, which is what previously masked same-row chords
+			 * such as Shift/Symbol + N/M/-.
+			 */
+			gpiod_direction_output(kbd->out[i], 0);
 			udelay(100);
 			in[try][i] = 0;
 			err = gpiod_get_array_value(8, kbd->in, NULL, &in[try][i]);
 			if (err) {
 				dev_err(dev, "failed to get array value: %d\n", err);
 			}
-			in[try][i] = ~(((in[try][i] ^ (in[try][i] >> 1)) & 0x1f) ^ (in[try][i] >> 1)) & 0x7f;
-			gpiod_set_value(kbd->out[i], 0);
+			/*
+			 * Decode the raw read into a 7-bit per-column row mask
+			 * where a pressed key is 0 (active low). Input bit 5 is
+			 * unused; raw bits 6 and 7 map to rows 5 and 6.
+			 */
+			in[try][i] = (((in[try][i] ^ (in[try][i] >> 1)) & 0x1f) ^ (in[try][i] >> 1)) & 0x7f;
+			gpiod_direction_input(kbd->out[i]);
 		}
 
 		if (try < 3) {
@@ -134,6 +149,24 @@ static void bk_gpio_poll(struct input_dev *inputdev)
 					}
 					kbd->pressed[i][j] = true;
 				} else {
+					/*
+					 * Key released while its bank is still
+					 * active (e.g. another key in the same
+					 * bank is held, as in a modifier chord).
+					 * Emit the release here; the bank-flush
+					 * branch below only runs once the WHOLE
+					 * bank goes idle, so without this a key
+					 * lifted mid-chord would stick.
+					 */
+					if (kbd->pressed[i][j]) {
+						if (i == kbd->sym_key_bank && j == kbd->sym_key_num) {
+							kbd->symbol = false;
+						} else {
+							dev_dbg(dev, "R: %04x\n", kbd->km[i][j]);
+							input_report_key(inputdev, kbd->km[i][j], 0);
+							input_report_key(inputdev, kbd->km_symbol[i][j], 0);
+						}
+					}
 					kbd->pressed[i][j] = false;
 				}
 			}

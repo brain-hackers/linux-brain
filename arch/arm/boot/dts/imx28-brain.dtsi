@@ -153,6 +153,32 @@
 					fsl,pull-up = <MXS_PULL_DISABLE>;
 				};
 
+				kbd_in_pins: keyboard@0 {
+					reg = <0>;
+					/*
+					 * Keyboard matrix sense (row) lines.
+					 * They are scanned by driving one column
+					 * low at a time while the others are kept
+					 * hi-Z, so the rows need a pull-up to
+					 * define the idle ("not pressed") level
+					 * and to avoid floating reads. A pressed
+					 * key pulls its row low.
+					 */
+					fsl,pinmux-ids = <
+						MX28_PAD_ENET0_MDC__GPIO_4_0
+						MX28_PAD_ENET0_MDIO__GPIO_4_1
+						MX28_PAD_ENET0_RX_EN__GPIO_4_2
+						MX28_PAD_ENET0_RXD0__GPIO_4_3
+						MX28_PAD_ENET0_RXD1__GPIO_4_4
+						MX28_PAD_ENET0_TX_CLK__GPIO_4_5
+						MX28_PAD_ENET0_TX_EN__GPIO_4_6
+						MX28_PAD_ENET0_TXD0__GPIO_4_7
+					>;
+					fsl,drive-strength = <MXS_DRIVE_4mA>;
+					fsl,voltage = <MXS_VOLTAGE_HIGH>;
+					fsl,pull-up = <MXS_PULL_ENABLE>;
+				};
+
 				lcd_backlight_pins: pwm@0 {
 					reg = <0>;
 					fsl,pinmux-ids = <
@@ -392,6 +418,8 @@
 	keyboard_gpio: keyboard_gpio {
 		status = "disabled";
 		compatible = "sharp,brain-kbd-gpio";
+		pinctrl-names = "default";
+		pinctrl-0 = <&kbd_in_pins>;
 	};
 
 	buzzer_cold: buzzer_cold {
