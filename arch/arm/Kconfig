@@ -723,6 +723,8 @@ source "arch/arm/mach-spear/Kconfig"
 
 source "arch/arm/mach-sti/Kconfig"
 
+source "arch/arm/mach-tmpa9xx/Kconfig"
+
 source "arch/arm/mach-stm32/Kconfig"
 
 source "arch/arm/mach-sunxi/Kconfig"

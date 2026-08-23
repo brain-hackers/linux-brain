@@ -31,6 +31,11 @@ config CLKBLD_I8253
 config CLKSRC_MMIO
 	bool
 
+config TMPA9XX_TIMER
+	bool
+	select CLKSRC_MMIO
+	select TIMER_OF
+
 config BCM2835_TIMER
 	bool "BCM2835 timer driver" if COMPILE_TEST
 	select CLKSRC_MMIO
