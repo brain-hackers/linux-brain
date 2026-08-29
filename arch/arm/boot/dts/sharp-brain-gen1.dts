@@ -58,3 +58,10 @@
 &uart0 {
 	status = "okay";
 };
+
+
+&sdhi0 {
+	/* The slot's SDHI card-detect status stays low with a card inserted. */
+	broken-cd;
+	status = "okay";
+};

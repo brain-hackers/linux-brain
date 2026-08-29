@@ -643,6 +643,15 @@ config MMC_SDHCI_SPRD
 config MMC_TMIO_CORE
 	tristate
 
+config MMC_TMPA9XX_SDHI
+	tristate "Toshiba TMPA9xx SD host controller support"
+	depends on ARCH_TMPA9XX && OF
+	select MMC_TMIO_CORE
+	help
+	  This provides PIO support for the TMIO-compatible SD host
+	  controller in Toshiba TMPA9xx SoCs. The driver is intended for
+	  boards that connect an SD card to the SoC's SDHI0 interface.
+
 config MMC_TMIO
 	tristate "Toshiba Mobile IO Controller (TMIO) MMC/SD function support"
 	depends on MFD_TMIO || MFD_ASIC3

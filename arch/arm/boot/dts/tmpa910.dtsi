@@ -52,5 +52,18 @@
 			clock-names = "uartclk", "apb_pclk";
 			status = "disabled";
 		};
+
+
+		sdhi0: mmc@f2030000 {
+			compatible = "toshiba,tmpa910-sdhi";
+			reg = <0xf2030000 0x400>,
+			      <0xf005004c 0x4>,
+			      <0xf0806000 0x1000>;
+			reg-names = "sdhi", "clock-control", "port-g";
+			interrupts = <22>;
+			bus-width = <4>;
+			max-frequency = <48000000>;
+			status = "disabled";
+		};
 	};
 };
