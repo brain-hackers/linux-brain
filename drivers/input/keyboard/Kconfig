@@ -791,6 +791,17 @@ config KEYBOARD_BRAIN_GPIO
 	  To compile this driver as a module, choose M here: the
 	  module will be called brain-kbd-gpio.
 
+config KEYBOARD_BRAIN_GEN1
+	tristate "SHARP Brain first-generation matrix keyboard"
+	depends on OF && ARCH_TMPA9XX
+	help
+	  Say Y here to enable the directly connected 8x8 matrix keyboard on
+	  first-generation SHARP Brain devices using the TMPA910 GPIO banks.
+	  The keyboard is polled and supports simultaneous modifier keys.
+
+	  To compile this driver as a module, choose M here: the module will be
+	  called brain-gen1-keyboard.
+
 config KEYBOARD_BRAIN_I2C
 	tristate "SHARP Brain keyboard (I2C)"
 	depends on OF && I2C

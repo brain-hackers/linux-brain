@@ -10,8 +10,21 @@
 	compatible = "sharp,brain-gen1", "toshiba,tmpa910";
 
 	chosen {
-		bootargs = "console=ttyAMA0,115200";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		bootargs = "console=ttyAMA0,115200n8 console=tty0";
 		stdout-path = "serial0:115200n8";
+
+		framebuffer0: framebuffer@43e00000 {
+			compatible = "simple-framebuffer";
+			reg = <0x43e00000 0x00050000>;
+			width = <480>;
+			height = <320>;
+			stride = <1024>;
+			format = "r5g6b5";
+		};
 	};
 
 	aliases {
@@ -21,6 +34,24 @@
 	memory@40000000 {
 		device_type = "memory";
 		reg = <0x40000000 0x04000000>;
+	};
+
+
+	keyboard@f0800000 {
+		compatible = "sharp,brain-gen1-keyboard";
+		reg = <0xf0800000 0x1000>, <0xf0801000 0x1000>;
+		reg-names = "gpioa", "gpiob";
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		framebuffer@43e00000 {
+			reg = <0x43e00000 0x00050000>;
+			no-map;
+		};
 	};
 };
 
