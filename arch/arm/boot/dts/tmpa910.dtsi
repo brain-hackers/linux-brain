@@ -19,10 +19,10 @@
 		};
 	};
 
-	uartclk: uart-clock {
+	pclk: peripheral-clock {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
-		clock-frequency = <96000000>;
+		clock-frequency = <100000000>;
 	};
 
 	soc {
@@ -40,15 +40,17 @@
 
 		timer@f0042000 {
 			compatible = "toshiba,tmpa910-timer";
-			reg = <0xf0042000 0x1000>;
+			reg = <0xf0042000 0x1000>, <0xf0050040 0x18>;
+			reg-names = "timer", "clock-control";
 			interrupts = <4>;
+			clock-frequency = <195312>;
 		};
 
 		uart0: serial@f2000000 {
 			compatible = "arm,pl011", "arm,primecell";
 			reg = <0xf2000000 0x1000>;
 			interrupts = <10>;
-			clocks = <&uartclk>, <&uartclk>;
+			clocks = <&pclk>, <&pclk>;
 			clock-names = "uartclk", "apb_pclk";
 			status = "disabled";
 		};
@@ -62,7 +64,7 @@
 			reg-names = "sdhi", "clock-control", "port-g";
 			interrupts = <22>;
 			bus-width = <4>;
-			max-frequency = <48000000>;
+			max-frequency = <50000000>;
 			status = "disabled";
 		};
 	};

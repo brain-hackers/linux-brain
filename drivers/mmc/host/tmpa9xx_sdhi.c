@@ -128,7 +128,8 @@ static int tmpa9xx_sdhi_probe(struct platform_device *pdev)
 	writel(0, priv->gpio + TMPA9XX_GPIO_DIR);
 	writel(TMPA9XX_SDHI_PINS, priv->gpio + TMPA9XX_GPIO_FR1);
 
-	priv->pdata.hclk = 96000000;
+	/* U-Boot leaves the WinCE application fPCLK at 100 MHz. */
+	priv->pdata.hclk = 100000000;
 	priv->pdata.ocr_mask = MMC_VDD_32_33 | MMC_VDD_33_34;
 	priv->pdata.flags = TMIO_MMC_BLKSZ_2BYTES;
 
