@@ -1180,6 +1180,7 @@ static void ads7846_setup_spi_msg(struct ads7846 *ts,
 
 #ifdef CONFIG_OF
 static const struct of_device_id ads7846_dt_ids[] = {
+	{ .compatible = "akm,ak4182a", 	.data = (void *) 7846 },
 	{ .compatible = "ti,tsc2046",	.data = (void *) 7846 },
 	{ .compatible = "ti,ads7843",	.data = (void *) 7843 },
 	{ .compatible = "ti,ads7845",	.data = (void *) 7845 },

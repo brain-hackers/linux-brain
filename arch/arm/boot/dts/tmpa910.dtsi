@@ -3,6 +3,7 @@
  * Toshiba TMPA910 device tree description.
  */
 #include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/gpio/gpio.h>
 / {
 	#address-cells = <1>;
 	#size-cells = <1>;
@@ -44,6 +45,40 @@
 			reg-names = "timer", "clock-control";
 			interrupts = <4>;
 			clock-frequency = <195312>;
+		};
+
+		gpio_c: gpio@f0802000 {
+			compatible = "toshiba,tmpa910-gpioc";
+			reg = <0xf0802000 0x1000>;
+			interrupts = <30>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			status = "disabled";
+		};
+
+		gpio_t: gpio@f080f000 {
+			compatible = "toshiba,tmpa910-gpiot";
+			reg = <0xf080f000 0x1000>, <0xf0050040 0x4>;
+			reg-names = "gpio", "clock-control";
+			gpio-controller;
+			#gpio-cells = <2>;
+			status = "disabled";
+		};
+
+		ssp0: spi@f2002000 {
+			compatible = "arm,pl022", "arm,primecell";
+			reg = <0xf2002000 0x1000>;
+			interrupts = <12>;
+			clocks = <&pclk>;
+			clock-names = "apb_pclk";
+			arm,primecell-periphid = <0x00041022>;
+			num-cs = <1>;
+			cs-gpios = <&gpio_t 0 GPIO_ACTIVE_LOW>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
 		};
 
 		uart0: serial@f2000000 {
