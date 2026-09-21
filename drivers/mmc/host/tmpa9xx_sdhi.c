@@ -4,6 +4,12 @@
  *
  * Hardware setup is based on the MuCross TMPA9xx Linux 2.6.36 release:
  * https://mucross.com/downloads/tx09-linux/Release-20110309/src/
+ * Original MuCross sources:
+ * linux-tmpa9xx-2.6.36-110310/drivers/mmc/host/tmpa9xx-sdhc-core.c
+ * linux-tmpa9xx-2.6.36-110310/drivers/mmc/host/tmpa9xx-sdhc-user.c
+ * linux-tmpa9xx-2.6.36-110310/drivers/mmc/host/tmpa9xx-sdhc.h
+ * linux-tmpa9xx-2.6.36-110310/drivers/mmc/host/tmio_mmc.c
+ * linux-tmpa9xx-2.6.36-110310/drivers/mmc/host/tmio_mmc.h
  * Copyright (C) 2010 Thomas Haase (Thomas.Haase@web.de)
  *
  * The controller register interface is handled by the upstream TMIO core.
@@ -21,15 +27,11 @@
 #include "tmio_mmc.h"
 
 #define TMPA9XX_SDHI_CLK_GATE	BIT(2)
-#define TMPA9XX_GPIO_DIR		0x400
-#define TMPA9XX_GPIO_FR1		0x424
-#define TMPA9XX_SDHI_PINS	0xff
 #define TMPA9XX_SDHI_RESET_RELEASE	(BIT(0) | BIT(1))
 
 struct tmpa9xx_sdhi {
 	struct tmio_mmc_data pdata;
 	void __iomem *clkcr3;
-	void __iomem *gpio;
 };
 
 static struct tmpa9xx_sdhi *tmpa9xx_sdhi_priv(struct tmio_mmc_host *host)
@@ -114,20 +116,15 @@ static int tmpa9xx_sdhi_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->clkcr3))
 		return PTR_ERR(priv->clkcr3);
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
-	priv->gpio = devm_ioremap_resource(dev, res);
-	if (IS_ERR(priv->gpio))
-		return PTR_ERR(priv->gpio);
-
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
 		return irq;
 
-	/* Match the SDHC0 clock and Port G setup validated by U-Boot. */
+	/*
+	 * Match the SDHC0 clock setup validated by U-Boot. Port G is muxed by
+	 * gpio-tmpa9xx from the DT function property.
+	 */
 	writel(readl(priv->clkcr3) | TMPA9XX_SDHI_CLK_GATE, priv->clkcr3);
-	writel(0, priv->gpio + TMPA9XX_GPIO_DIR);
-	writel(TMPA9XX_SDHI_PINS, priv->gpio + TMPA9XX_GPIO_FR1);
-
 	/* U-Boot leaves the WinCE application fPCLK at 100 MHz. */
 	priv->pdata.hclk = 100000000;
 	priv->pdata.ocr_mask = MMC_VDD_32_33 | MMC_VDD_33_34;

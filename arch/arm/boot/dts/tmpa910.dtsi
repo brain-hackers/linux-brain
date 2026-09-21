@@ -74,6 +74,15 @@
 			status = "disabled";
 		};
 
+		gpio_g: gpio@f0806000 {
+			compatible = "toshiba,tmpa910-gpiog";
+			reg = <0xf0806000 0x1000>, <0xf005004c 0x4>;
+			reg-names = "gpio", "clock-control";
+			gpio-controller;
+			#gpio-cells = <2>;
+			status = "disabled";
+		};
+
 		gpio_t: gpio@f080f000 {
 			compatible = "toshiba,tmpa910-gpiot";
 			reg = <0xf080f000 0x1000>, <0xf0050040 0x4>;
@@ -110,9 +119,8 @@
 		sdhi0: mmc@f2030000 {
 			compatible = "toshiba,tmpa910-sdhi";
 			reg = <0xf2030000 0x400>,
-			      <0xf005004c 0x4>,
-			      <0xf0806000 0x1000>;
-			reg-names = "sdhi", "clock-control", "port-g";
+			      <0xf005004c 0x4>;
+			reg-names = "sdhi", "clock-control";
 			interrupts = <22>;
 			bus-width = <4>;
 			max-frequency = <50000000>;

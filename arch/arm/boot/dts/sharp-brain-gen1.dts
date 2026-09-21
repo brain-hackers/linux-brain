@@ -97,6 +97,10 @@
 	status = "okay";
 };
 
+&gpio_g {
+	status = "okay";
+	toshiba,sdhi0-function;
+};
 
 &gpio_t {
 	status = "okay";
