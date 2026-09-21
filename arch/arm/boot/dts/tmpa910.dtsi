@@ -47,6 +47,22 @@
 			clock-frequency = <195312>;
 		};
 
+		gpio_a: gpio@f0800000 {
+			compatible = "toshiba,tmpa910-gpioa";
+			reg = <0xf0800000 0x1000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			status = "disabled";
+		};
+
+		gpio_b: gpio@f0801000 {
+			compatible = "toshiba,tmpa910-gpiob";
+			reg = <0xf0801000 0x1000>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			status = "disabled";
+		};
+
 		gpio_c: gpio@f0802000 {
 			compatible = "toshiba,tmpa910-gpioc";
 			reg = <0xf0802000 0x1000>;

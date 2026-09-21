@@ -793,7 +793,7 @@ config KEYBOARD_BRAIN_GPIO
 
 config KEYBOARD_BRAIN_GEN1
 	tristate "SHARP Brain first-generation matrix keyboard"
-	depends on OF && ARCH_TMPA9XX
+	depends on OF && GPIO_TMPA9XX
 	help
 	  Say Y here to enable the directly connected 8x8 matrix keyboard on
 	  first-generation SHARP Brain devices using the TMPA910 GPIO banks.

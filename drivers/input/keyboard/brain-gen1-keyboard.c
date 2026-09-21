@@ -13,14 +13,16 @@
  * GPIO use and scanning are based on the hardware-tested U-Boot Brain Gen1
  * driver.  Registers were checked against the TMPA910CRA manual and MuCross:
  * https://mucross.com/downloads/tx09-linux/Release-20110309/src/
+ * Original MuCross source:
+ * linux-tmpa9xx-2.6.36-110310/arch/arm/mach-tmpa9xx/gpio.c
  * Copyright (C) 2009,2010 Kernel Concepts
  *
  */
 
 #include <linux/bitops.h>
 #include <linux/delay.h>
+#include <linux/gpio/consumer.h>
 #include <linux/input.h>
-#include <linux/io.h>
 #include <linux/jiffies.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -32,8 +34,6 @@
 #define BRAIN_GEN1_POLL_MS	10
 #define BRAIN_GEN1_DEBOUNCE_MS	20
 #define BRAIN_GEN1_SETTLE_US	10
-#define TMPA910_GPIO_DATA	0x3fc
-#define TMPA910_GPIO_ODE		0xc00
 #define BRAIN_GEN1_SHIFT	BIT_ULL(5 * BRAIN_GEN1_COLS)
 #define BRAIN_GEN1_CTRL		BIT_ULL(5 * BRAIN_GEN1_COLS + 1)
 #define BRAIN_GEN1_ALT		BIT_ULL(6 * BRAIN_GEN1_COLS + 1)
@@ -43,8 +43,8 @@
 
 struct brain_gen1_keyboard {
 	struct input_dev *input;
-	void __iomem *gpioa;
-	void __iomem *gpiob;
+	struct gpio_desc *rows[BRAIN_GEN1_ROWS];
+	struct gpio_desc *cols[BRAIN_GEN1_COLS];
 	struct delayed_work poll_work;
 	u64 candidate;
 	u64 stable;
@@ -103,23 +103,28 @@ static u64 brain_gen1_scan(struct brain_gen1_keyboard *kbd)
 
 	for (col = 0; col < BRAIN_GEN1_COLS; col++) {
 		u32 rows;
-		unsigned int row;
+		unsigned int row, i;
 
 		/*
 		 * Break before make.  Otherwise the previous open-drain KO can
 		 * remain low during the next KI sample, reporting one key in
 		 * two adjacent matrix columns.
 		 */
-		writel(0xff, kbd->gpiob + TMPA910_GPIO_DATA);
+		for (i = 0; i < BRAIN_GEN1_COLS; i++)
+			gpiod_set_value(kbd->cols[i], 1);
 		udelay(BRAIN_GEN1_SETTLE_US);
-		writel(0xff & ~BIT(col), kbd->gpiob + TMPA910_GPIO_DATA);
+		gpiod_set_value(kbd->cols[col], 0);
 		udelay(BRAIN_GEN1_SETTLE_US);
-		rows = ~readl(kbd->gpioa + TMPA910_GPIO_DATA) & 0xff;
+		rows = 0;
+		for (row = 0; row < BRAIN_GEN1_ROWS; row++)
+			if (!gpiod_get_value(kbd->rows[row]))
+				rows |= BIT(row);
 		for (row = 0; row < BRAIN_GEN1_ROWS; row++)
 			if (rows & BIT(row))
 				keys |= BIT_ULL(row * BRAIN_GEN1_COLS + col);
 	}
-	writel(0xff, kbd->gpiob + TMPA910_GPIO_DATA);
+	for (col = 0; col < BRAIN_GEN1_COLS; col++)
+		gpiod_set_value(kbd->cols[col], 1);
 	return keys;
 }
 
@@ -199,8 +204,10 @@ static int brain_gen1_open(struct input_dev *input)
 {
 	struct brain_gen1_keyboard *kbd = input_get_drvdata(input);
 
-	writel(0xff, kbd->gpiob + TMPA910_GPIO_DATA);
-	writel(0xff, kbd->gpiob + TMPA910_GPIO_ODE);
+	unsigned int col;
+
+	for (col = 0; col < BRAIN_GEN1_COLS; col++)
+		gpiod_set_value(kbd->cols[col], 1);
 	kbd->candidate = 0;
 	kbd->stable = 0;
 	kbd->candidate_since = jiffies;
@@ -212,10 +219,12 @@ static int brain_gen1_open(struct input_dev *input)
 static void brain_gen1_close(struct input_dev *input)
 {
 	struct brain_gen1_keyboard *kbd = input_get_drvdata(input);
+	unsigned int col;
 
 	kbd->opened = false;
 	cancel_delayed_work_sync(&kbd->poll_work);
-	writel(0xff, kbd->gpiob + TMPA910_GPIO_DATA);
+	for (col = 0; col < BRAIN_GEN1_COLS; col++)
+		gpiod_set_value(kbd->cols[col], 1);
 }
 
 static int brain_gen1_keyboard_probe(struct platform_device *pdev)
@@ -223,21 +232,37 @@ static int brain_gen1_keyboard_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct brain_gen1_keyboard *kbd;
 	struct input_dev *input;
-	struct resource *res;
 	int error;
-	unsigned int row, col;
+	unsigned int row, col, count;
 
 	kbd = devm_kzalloc(dev, sizeof(*kbd), GFP_KERNEL);
 	if (!kbd)
 		return -ENOMEM;
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "gpioa");
-	kbd->gpioa = devm_ioremap_resource(dev, res);
-	if (IS_ERR(kbd->gpioa))
-		return PTR_ERR(kbd->gpioa);
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "gpiob");
-	kbd->gpiob = devm_ioremap_resource(dev, res);
-	if (IS_ERR(kbd->gpiob))
-		return PTR_ERR(kbd->gpiob);
+	count = gpiod_count(dev, "matrix-in");
+	if (count != BRAIN_GEN1_ROWS) {
+		dev_err(dev, "expected %u matrix-in-gpios, got %u\n",
+			BRAIN_GEN1_ROWS, count);
+		return -EINVAL;
+	}
+	for (row = 0; row < BRAIN_GEN1_ROWS; row++) {
+		kbd->rows[row] = devm_gpiod_get_index(dev, "matrix-in", row,
+						      GPIOD_IN);
+		if (IS_ERR(kbd->rows[row]))
+			return PTR_ERR(kbd->rows[row]);
+	}
+
+	count = gpiod_count(dev, "matrix-out");
+	if (count != BRAIN_GEN1_COLS) {
+		dev_err(dev, "expected %u matrix-out-gpios, got %u\n",
+			BRAIN_GEN1_COLS, count);
+		return -EINVAL;
+	}
+	for (col = 0; col < BRAIN_GEN1_COLS; col++) {
+		kbd->cols[col] = devm_gpiod_get_index(dev, "matrix-out", col,
+						      GPIOD_OUT_HIGH);
+		if (IS_ERR(kbd->cols[col]))
+			return PTR_ERR(kbd->cols[col]);
+	}
 
 	input = input_allocate_device();
 	if (!input)
@@ -272,10 +297,12 @@ static int brain_gen1_keyboard_probe(struct platform_device *pdev)
 static int brain_gen1_keyboard_remove(struct platform_device *pdev)
 {
 	struct brain_gen1_keyboard *kbd = platform_get_drvdata(pdev);
+	unsigned int col;
 
 	kbd->opened = false;
 	cancel_delayed_work_sync(&kbd->poll_work);
-	writel(0xff, kbd->gpiob + TMPA910_GPIO_DATA);
+	for (col = 0; col < BRAIN_GEN1_COLS; col++)
+		gpiod_set_value(kbd->cols[col], 1);
 	input_unregister_device(kbd->input);
 	return 0;
 }

@@ -48,8 +48,24 @@
 
 	keyboard@f0800000 {
 		compatible = "sharp,brain-gen1-keyboard";
-		reg = <0xf0800000 0x1000>, <0xf0801000 0x1000>;
-		reg-names = "gpioa", "gpiob";
+		matrix-in-gpios =
+			<&gpio_a 0 GPIO_ACTIVE_HIGH>,
+			<&gpio_a 1 GPIO_ACTIVE_HIGH>,
+			<&gpio_a 2 GPIO_ACTIVE_HIGH>,
+			<&gpio_a 3 GPIO_ACTIVE_HIGH>,
+			<&gpio_a 4 GPIO_ACTIVE_HIGH>,
+			<&gpio_a 5 GPIO_ACTIVE_HIGH>,
+			<&gpio_a 6 GPIO_ACTIVE_HIGH>,
+			<&gpio_a 7 GPIO_ACTIVE_HIGH>;
+		matrix-out-gpios =
+			<&gpio_b 0 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>,
+			<&gpio_b 1 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>,
+			<&gpio_b 2 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>,
+			<&gpio_b 3 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>,
+			<&gpio_b 4 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>,
+			<&gpio_b 5 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>,
+			<&gpio_b 6 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>,
+			<&gpio_b 7 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
 	};
 
 	reserved-memory {
@@ -72,6 +88,15 @@
 &gpio_c {
 	status = "okay";
 };
+
+&gpio_a {
+	status = "okay";
+};
+
+&gpio_b {
+	status = "okay";
+};
+
 
 &gpio_t {
 	status = "okay";
