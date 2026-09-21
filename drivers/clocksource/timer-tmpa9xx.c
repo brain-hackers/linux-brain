@@ -2,6 +2,8 @@
 /*
  * Toshiba TMPA9xx timer support, ported from MuCross Linux 2.6.36:
  * https://mucross.com/downloads/tx09-linux/Release-20110309/src/
+ * Original MuCross source:
+ * linux-tmpa9xx-2.6.36-110310/arch/arm/mach-tmpa9xx/time.c
  * Copyright (C) 2001 Deep Blue Solutions Ltd.
  * Copyright (C) 2010 Thomas Haase (Thomas.Haase@web.de)
  */
