@@ -39,6 +39,31 @@
 			reg = <0xf4000000 0x1000>;
 		};
 
+		/*
+		 * TMPA910 DMAC is an ARM PL080-compatible 8-channel engine.
+		 * DMA request 0 is UART0 TX and request 1 is UART0 RX.  The
+		 * existing amba-pl08x driver supplies IRQ completion handling and
+		 * linked-list transfers for the PL011 driver.
+		 *
+		 */
+		dmac: dma-controller@f4100000 {
+			compatible = "arm,pl080", "arm,primecell";
+			arm,primecell-periphid = <0x00041080>;
+			reg = <0xf4100000 0x1000>;
+			interrupts = <17>;
+			clocks = <&pclk>;
+			clock-names = "apb_pclk";
+			#dma-cells = <2>;
+			dma-channels = <8>;
+			dma-requests = <16>;
+			lli-bus-interface-ahb1;
+			lli-bus-interface-ahb2;
+			mem-bus-interface-ahb1;
+			mem-bus-interface-ahb2;
+			memcpy-burst-size = <16>;
+			memcpy-bus-width = <32>;
+		};
+
 		timer@f0042000 {
 			compatible = "toshiba,tmpa910-timer";
 			reg = <0xf0042000 0x1000>, <0xf0050040 0x18>;
@@ -110,6 +135,8 @@
 			compatible = "arm,pl011", "arm,primecell";
 			reg = <0xf2000000 0x1000>;
 			interrupts = <10>;
+			dmas = <&dmac 0 0>, <&dmac 1 0>;
+			dma-names = "tx", "rx";
 			clocks = <&pclk>, <&pclk>;
 			clock-names = "uartclk", "apb_pclk";
 			status = "disabled";
