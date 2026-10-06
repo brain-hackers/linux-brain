@@ -16,6 +16,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
+#include <linux/sysfs.h>
 
 #define DEV_NAME "brain-kbd-gpio"
 
@@ -38,6 +39,35 @@ struct bk_gpio_data {
 	ulong last_in[7];
 	bool pressed[7][7];
 };
+
+static ssize_t symbol_activated_show(struct device *dev,
+				     struct device_attribute *attr, char *buf)
+{
+	struct input_dev *inputdev = container_of(dev, struct input_dev, dev);
+	struct bk_gpio_data *kbd = input_get_drvdata(inputdev);
+
+	return sprintf(buf, "%d\n", READ_ONCE(kbd->symbol));
+}
+static DEVICE_ATTR_RO(symbol_activated);
+
+static struct attribute *brain_kbd_attrs[] = {
+	&dev_attr_symbol_activated.attr,
+	NULL,
+};
+
+static const struct attribute_group brain_kbd_group = {
+	.attrs = brain_kbd_attrs,
+};
+
+static void bk_gpio_set_symbol(struct bk_gpio_data *kbd, bool pressed)
+{
+	if (kbd->symbol == pressed)
+		return;
+
+	WRITE_ONCE(kbd->symbol, pressed);
+	sysfs_notify(&kbd->inputdev->dev.kobj, NULL,
+		     dev_attr_symbol_activated.attr.name);
+}
 
 static void bk_gpio_read_keys(struct input_dev *inputdev, ulong* result)
 {
@@ -132,7 +162,7 @@ static void bk_gpio_poll(struct input_dev *inputdev)
 					if (!kbd->pressed[i][j]) {
 						if (i == kbd->sym_key_bank && j == kbd->sym_key_num) {
 							dev_dbg(dev, "symbol\n");
-							kbd->symbol = true;
+							bk_gpio_set_symbol(kbd, true);
 						} else {
 							dev_dbg(dev, "P: %04x\n", kbd->km[i][j]);
 							input_report_key(
@@ -155,7 +185,7 @@ static void bk_gpio_poll(struct input_dev *inputdev)
 					 */
 					if (kbd->pressed[i][j]) {
 						if (i == kbd->sym_key_bank && j == kbd->sym_key_num) {
-							kbd->symbol = false;
+							bk_gpio_set_symbol(kbd, false);
 						} else {
 							dev_dbg(dev, "R: %04x\n", kbd->km[i][j]);
 							input_report_key(inputdev, kbd->km[i][j], 0);
@@ -174,7 +204,7 @@ static void bk_gpio_poll(struct input_dev *inputdev)
 				kbd->pressed[i][j] = false;
 
 				if (i == kbd->sym_key_bank && j == kbd->sym_key_num) {
-					kbd->symbol = false;
+					bk_gpio_set_symbol(kbd, false);
 				} else {
 					dev_dbg(dev, "R: %04x\n", kbd->km[i][j]);
 					input_report_key(inputdev, kbd->km[i][j], 0);
@@ -347,6 +377,12 @@ static int bk_gpio_probe(struct platform_device *pdev)
 	if (err) {
 		dev_err(dev, "failed to register input device: %d\n",
 			err);
+		return err;
+	}
+
+	err = sysfs_create_group(&kbd->inputdev->dev.kobj, &brain_kbd_group);
+	if (err) {
+		dev_err(dev, "failed to create sysfs group: %d\n", err);
 		return err;
 	}
 
