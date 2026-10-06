@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config ARCH_TMPA9XX
+	bool "Toshiba TMPA9xx"
+	depends on ARCH_MULTI_V5
+	select ARM_AMBA
+	select ARM_VIC
+	select TMPA9XX_TIMER
+	help
+	  Support for Toshiba TMPA9xx ARM926EJ-S processors.
