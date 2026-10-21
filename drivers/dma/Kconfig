@@ -512,6 +512,17 @@ config MXS_DMA
 
 source "drivers/dma/pxp/Kconfig"
 
+config MXS_DMA_KUNIT_TEST
+	tristate "KUnit tests for MXS DMA termination state" if !KUNIT_ALL_TESTS
+	depends on KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  Test the hardware state checks used to synchronize MXS cyclic DMA.
+	  Synthetic register values check the semaphore count and the complete
+	  five-bit channel state, including pending AHB writes. These tests
+	  do not access a DMA controller or require MXS hardware. They do not
+	  replace hardware testing of termination and callback synchronization.
+
 config MX3_IPU
 	bool "MX3x Image Processing Unit support"
 	depends on ARCH_MXC
