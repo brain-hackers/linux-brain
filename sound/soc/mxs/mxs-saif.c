@@ -7,6 +7,7 @@
 #include <linux/init.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
+#include <linux/of_platform.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/dma-mapping.h>
@@ -14,6 +15,7 @@
 #include <linux/clk-provider.h>
 #include <linux/delay.h>
 #include <linux/io.h>
+#include <linux/mutex.h>
 #include <linux/time.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -22,11 +24,15 @@
 #include <sound/dmaengine_pcm.h>
 
 #include "mxs-saif.h"
+#include "mxs-saif-clk.h"
 
 #define MXS_SET_ADDR	0x4
 #define MXS_CLR_ADDR	0x8
 
 static struct mxs_saif *mxs_saif[2];
+static struct platform_driver mxs_saif_driver;
+/* Serializes configuration, the legacy MCLK API and its lookup entries. */
+static DEFINE_MUTEX(mxs_saif_mutex);
 
 /*
  * SAIF is a little different with other normal SOC DAIs on clock using.
@@ -42,8 +48,8 @@ static struct mxs_saif *mxs_saif[2];
  * itself or other saifs. In the generic saif driver, saif does not need
  * to know the different clkmux. Saif only needs to know who is its master
  * and operating its master to generate the proper clock rate for it.
- * The master id is provided in mach-specific layer according to different
- * clkmux setting.
+ * The fsl,saif-master phandle selects the clock source. A device link keeps
+ * that source bound until its consumers have stopped and unbound.
  */
 
 static int mxs_saif_set_dai_sysclk(struct snd_soc_dai *cpu_dai,
@@ -53,7 +59,13 @@ static int mxs_saif_set_dai_sysclk(struct snd_soc_dai *cpu_dai,
 
 	switch (clk_id) {
 	case MXS_SAIF_MCLK:
+		mutex_lock(&mxs_saif_mutex);
+		if (saif->configured && saif->mclk != freq) {
+			mutex_unlock(&mxs_saif_mutex);
+			return -EBUSY;
+		}
 		saif->mclk = freq;
+		mutex_unlock(&mxs_saif_mutex);
 		break;
 	default:
 		return -EINVAL;
@@ -61,143 +73,173 @@ static int mxs_saif_set_dai_sysclk(struct snd_soc_dai *cpu_dai,
 	return 0;
 }
 
-/*
- * Since SAIF may work on EXTMASTER mode, IOW, it's working BITCLK&LRCLK
- * is provided by other SAIF, we provide a interface here to get its master
- * from its master_id.
- * Note that the master could be itself.
- */
-static inline struct mxs_saif *mxs_saif_get_master(struct mxs_saif * saif)
+static inline struct mxs_saif *mxs_saif_get_master(struct mxs_saif *saif)
 {
-	return mxs_saif[saif->master_id];
+	return saif->master;
+}
+
+static void mxs_saif_update_ctrl(struct mxs_saif *saif, u32 mask, u32 value)
+{
+	unsigned long flags;
+	u32 ctrl;
+
+	spin_lock_irqsave(&saif->reg_lock, flags);
+	ctrl = __raw_readl(saif->base + SAIF_CTRL);
+	ctrl = (ctrl & ~mask) | (value & mask);
+	__raw_writel(ctrl, saif->base + SAIF_CTRL);
+	spin_unlock_irqrestore(&saif->reg_lock, flags);
+}
+
+/* Called with reg_lock held; retiring users remain counted during settling. */
+static void mxs_saif_update_run(struct mxs_saif *saif, unsigned int retiring)
+{
+	if (saif->mclk_in_use || saif->ccf_enabled || saif->ongoing > retiring) {
+		__raw_writel(BM_SAIF_CTRL_SFTRST,
+			     saif->base + SAIF_CTRL + MXS_CLR_ADDR);
+		__raw_writel(BM_SAIF_CTRL_CLKGATE,
+			     saif->base + SAIF_CTRL + MXS_CLR_ADDR);
+		__raw_writel(BM_SAIF_CTRL_RUN,
+			     saif->base + SAIF_CTRL + MXS_SET_ADDR);
+	} else if (__raw_readl(saif->base + SAIF_CTRL) & BM_SAIF_CTRL_RUN) {
+		__raw_writel(BM_SAIF_CTRL_RUN,
+			     saif->base + SAIF_CTRL + MXS_CLR_ADDR);
+	}
+	/* Settle the retiring PCM even if another owner keeps the generator on. */
+	if (retiring)
+		udelay(saif->stop_delay);
+}
+
+static void mxs_saif_restore_rate(struct mxs_saif *saif, struct clk *clk,
+				  unsigned long rate)
+{
+	unsigned long actual = clk_get_rate(clk);
+	int ret;
+
+	if (actual == rate || mxs_saif_rate_matches(actual, rate))
+		return;
+	ret = clk_set_rate(clk, rate);
+	if (!ret) {
+		actual = clk_get_rate(clk);
+		if (actual != rate && !mxs_saif_rate_matches(actual, rate))
+			ret = -EIO;
+	}
+	if (ret)
+		dev_err(saif->dev, "failed to restore %s rate: %d\n",
+			__clk_get_name(clk), ret);
 }
 
 /*
- * Set SAIF clock and MCLK
+ * Set SAIF clock and MCLK, retaining one rate-exclusive reference on success.
  */
 static int mxs_saif_set_clk(struct mxs_saif *saif,
 				  unsigned int mclk,
 				  unsigned int rate)
 {
-	u32 scr;
+	struct mxs_saif *master = saif->master;
+	struct mxs_saif_clk_config config;
+	unsigned long actual, old_parent, old_output;
+	long rounded, old_target = 0;
+	u32 scr, old_base;
+	bool parent_owned = false;
 	int ret;
-	struct mxs_saif *master_saif;
 
-	dev_dbg(saif->dev, "mclk %d rate %d\n", mclk, rate);
-
-	/* Set master saif to generate proper clock */
-	master_saif = mxs_saif_get_master(saif);
-	if (!master_saif)
+	if (rate < 8000 || rate > 192000)
 		return -EINVAL;
-
-	dev_dbg(saif->dev, "master saif%d\n", master_saif->id);
-
-	/* Checking if can playback and capture simutaneously */
-	if (master_saif->ongoing && rate != master_saif->cur_rate) {
-		dev_err(saif->dev,
-			"can not change clock, master saif%d(rate %d) is ongoing\n",
-			master_saif->id, master_saif->cur_rate);
+	if (!mclk && (READ_ONCE(master->mclk_in_use) || READ_ONCE(master->ccf_enabled)))
 		return -EINVAL;
-	}
-
-	scr = __raw_readl(master_saif->base + SAIF_CTRL);
-	scr &= ~BM_SAIF_CTRL_BITCLK_MULT_RATE;
-	scr &= ~BM_SAIF_CTRL_BITCLK_BASE_RATE;
-
-	/*
-	 * Set SAIF clock
-	 *
-	 * The SAIF clock should be either 384*fs or 512*fs.
-	 * If MCLK is used, the SAIF clk ratio needs to match mclk ratio.
-	 *  For 256x, 128x, 64x, and 32x sub-rates, set saif clk as 512*fs.
-	 *  For 192x, 96x, and 48x sub-rates, set saif clk as 384*fs.
-	 *
-	 * If MCLK is not used, we just set saif clk to 512*fs.
-	 */
-	ret = clk_prepare_enable(master_saif->clk);
+	ret = mxs_saif_calc_clk(mclk, rate, &config);
 	if (ret)
 		return ret;
+	if (master->configured_users &&
+	    (master->cur_rate != rate || master->cur_mclk != mclk))
+		return -EBUSY;
+	if (!master->configured_users && !READ_ONCE(master->ccf_enabled) &&
+	    !master->mclk_in_use &&
+	    (__raw_readl(master->base + SAIF_STAT) & BM_SAIF_STAT_BUSY))
+		return -EBUSY;
 
-	if (master_saif->mclk_in_use) {
-		switch (mclk / rate) {
-		case 32:
-		case 64:
-		case 128:
-		case 256:
-		case 512:
-			scr &= ~BM_SAIF_CTRL_BITCLK_BASE_RATE;
-			ret = clk_set_rate(master_saif->clk, 512 * rate);
-			break;
-		case 48:
-		case 96:
-		case 192:
-		case 384:
-			scr |= BM_SAIF_CTRL_BITCLK_BASE_RATE;
-			ret = clk_set_rate(master_saif->clk, 384 * rate);
-			break;
-		default:
-			/* SAIF MCLK should be a sub-rate of 512x or 384x */
-			clk_disable_unprepare(master_saif->clk);
-			return -EINVAL;
-		}
+	ret = clk_prepare_enable(master->clk);
+	if (ret)
+		return ret;
+	if (master->configured_users) {
+		rounded = master->parent_rate;
 	} else {
-		ret = clk_set_rate(master_saif->clk, 512 * rate);
-		scr &= ~BM_SAIF_CTRL_BITCLK_BASE_RATE;
+		ret = clk_rate_exclusive_get(master->clk);
+		if (ret)
+			goto disable;
+		parent_owned = true;
+		old_parent = clk_get_rate(master->clk);
+		if (old_parent) {
+			old_target = clk_round_rate(master->clk, old_parent);
+			/* Recover the same fractional divisor from truncated readback. */
+			if (old_target <= 0 ||
+			    !mxs_saif_rate_matches(old_parent, old_target)) {
+				if (old_parent == ULONG_MAX) {
+					ret = -EINVAL;
+					goto release_parent;
+				}
+				old_target = clk_round_rate(master->clk, old_parent + 1);
+			}
+			if (old_target <= 0 ||
+			    !mxs_saif_rate_matches(old_parent, old_target)) {
+				ret = -EIO;
+				goto release_parent;
+			}
+		}
+		rounded = clk_round_rate(master->clk, config.parent_rate);
+		if (rounded <= 0) {
+			ret = rounded ? rounded : -EINVAL;
+			goto release_parent;
+		}
+		if (!mxs_saif_rate_matches(clk_get_rate(master->clk), rounded)) {
+			ret = clk_set_rate(master->clk, config.parent_rate);
+			if (ret)
+				goto restore_parent;
+		}
 	}
 
-	clk_disable_unprepare(master_saif->clk);
-
+	/* Protect both divider and parent before validating and committing fields. */
+	ret = clk_rate_exclusive_get(saif->mclk_clk);
 	if (ret)
-		return ret;
-
-	master_saif->cur_rate = rate;
-
-	if (!master_saif->mclk_in_use) {
-		__raw_writel(scr, master_saif->base + SAIF_CTRL);
-		return 0;
+		goto restore_parent;
+	old_output = clk_get_rate(saif->mclk_clk);
+	old_base = __raw_readl(master->base + SAIF_CTRL) & BM_SAIF_CTRL_BITCLK_BASE_RATE;
+	actual = clk_get_rate(master->clk);
+	if (!mxs_saif_rate_matches(actual, rounded)) {
+		ret = -EIO;
+		goto unprotect;
 	}
-
-	/*
-	 * Program the over-sample rate for MCLK output
-	 *
-	 * The available MCLK range is 32x, 48x... 512x. The rate
-	 * could be from 8kHz to 192kH.
-	 */
-	switch (mclk / rate) {
-	case 32:
-		scr |= BF_SAIF_CTRL_BITCLK_MULT_RATE(4);
-		break;
-	case 64:
-		scr |= BF_SAIF_CTRL_BITCLK_MULT_RATE(3);
-		break;
-	case 128:
-		scr |= BF_SAIF_CTRL_BITCLK_MULT_RATE(2);
-		break;
-	case 256:
-		scr |= BF_SAIF_CTRL_BITCLK_MULT_RATE(1);
-		break;
-	case 512:
-		scr |= BF_SAIF_CTRL_BITCLK_MULT_RATE(0);
-		break;
-	case 48:
-		scr |= BF_SAIF_CTRL_BITCLK_MULT_RATE(3);
-		break;
-	case 96:
-		scr |= BF_SAIF_CTRL_BITCLK_MULT_RATE(2);
-		break;
-	case 192:
-		scr |= BF_SAIF_CTRL_BITCLK_MULT_RATE(1);
-		break;
-	case 384:
-		scr |= BF_SAIF_CTRL_BITCLK_MULT_RATE(0);
-		break;
-	default:
-		return -EINVAL;
+	/* Honor other CCF consumers' exclusivity, including divider-only changes. */
+	ret = clk_set_rate(saif->mclk_clk,
+			   DIV_ROUND_UP(rounded, 1U << config.mult_rate));
+	if (ret)
+		goto unprotect;
+	scr = config.base_384fs ? BM_SAIF_CTRL_BITCLK_BASE_RATE : 0;
+	mxs_saif_update_ctrl(master, BM_SAIF_CTRL_BITCLK_BASE_RATE, scr);
+	actual = clk_get_rate(saif->mclk_clk);
+	if (!mxs_saif_rate_matches(actual,
+				   DIV_ROUND_UP(rounded, 1U << config.mult_rate))) {
+		ret = -EIO;
+		goto unprotect;
 	}
-
-	__raw_writel(scr, master_saif->base + SAIF_CTRL);
-
-	return 0;
+	WRITE_ONCE(master->cur_rate, rate);
+	master->cur_mclk = mclk;
+	master->parent_rate = rounded;
+	/* The caller retains this exclusive reference until configuration release. */
+	goto release_parent;
+unprotect:
+	mxs_saif_restore_rate(master, saif->mclk_clk, old_output);
+	mxs_saif_update_ctrl(master, BM_SAIF_CTRL_BITCLK_BASE_RATE, old_base);
+	clk_rate_exclusive_put(saif->mclk_clk);
+restore_parent:
+	if (parent_owned)
+		mxs_saif_restore_rate(master, master->clk, old_target);
+release_parent:
+	if (parent_owned)
+		clk_rate_exclusive_put(master->clk);
+disable:
+	clk_disable_unprepare(master->clk);
+	return ret;
 }
 
 /*
@@ -205,28 +247,40 @@ static int mxs_saif_set_clk(struct mxs_saif *saif,
  */
 int mxs_saif_put_mclk(unsigned int saif_id)
 {
-	struct mxs_saif *saif = mxs_saif[saif_id];
+	struct mxs_saif *saif;
+	unsigned long flags;
 	u32 stat;
+	int ret = 0;
 
-	if (!saif)
+	if (saif_id >= ARRAY_SIZE(mxs_saif))
 		return -EINVAL;
-
-	stat = __raw_readl(saif->base + SAIF_STAT);
-	if (stat & BM_SAIF_STAT_BUSY) {
-		dev_err(saif->dev, "error: busy\n");
-		return -EBUSY;
+	mutex_lock(&mxs_saif_mutex);
+	saif = mxs_saif[saif_id];
+	if (!saif) {
+		ret = -ENODEV;
+		goto unlock;
+	}
+	if (!saif->mclk_in_use) {
+		ret = -EINVAL;
+		goto unlock;
 	}
 
-	clk_disable_unprepare(saif->clk);
-
-	/* disable MCLK output */
-	__raw_writel(BM_SAIF_CTRL_CLKGATE,
-		saif->base + SAIF_CTRL + MXS_SET_ADDR);
-	__raw_writel(BM_SAIF_CTRL_RUN,
-		saif->base + SAIF_CTRL + MXS_CLR_ADDR);
+	spin_lock_irqsave(&saif->reg_lock, flags);
+	stat = __raw_readl(saif->base + SAIF_STAT);
+	if ((stat & BM_SAIF_STAT_BUSY) && !saif->ongoing && !saif->ccf_enabled) {
+		spin_unlock_irqrestore(&saif->reg_lock, flags);
+		dev_err(saif->dev, "error: busy\n");
+		ret = -EBUSY;
+		goto unlock;
+	}
 
 	saif->mclk_in_use = 0;
-	return 0;
+	mxs_saif_update_run(saif, 0);
+	spin_unlock_irqrestore(&saif->reg_lock, flags);
+	clk_disable_unprepare(saif->clk);
+unlock:
+	mutex_unlock(&mxs_saif_mutex);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(mxs_saif_put_mclk);
 
@@ -239,48 +293,45 @@ EXPORT_SYMBOL_GPL(mxs_saif_put_mclk);
 int mxs_saif_get_mclk(unsigned int saif_id, unsigned int mclk,
 					unsigned int rate)
 {
-	struct mxs_saif *saif = mxs_saif[saif_id];
-	u32 stat;
+	struct mxs_saif *saif;
+	unsigned long flags;
 	int ret;
-	struct mxs_saif *master_saif;
 
-	if (!saif)
+	if (saif_id >= ARRAY_SIZE(mxs_saif) || !mclk)
 		return -EINVAL;
 
-	/* Clear Reset */
-	__raw_writel(BM_SAIF_CTRL_SFTRST,
-		saif->base + SAIF_CTRL + MXS_CLR_ADDR);
-
-	/* FIXME: need clear clk gate for register r/w */
-	__raw_writel(BM_SAIF_CTRL_CLKGATE,
-		saif->base + SAIF_CTRL + MXS_CLR_ADDR);
-
-	master_saif = mxs_saif_get_master(saif);
-	if (saif != master_saif) {
-		dev_err(saif->dev, "can not get mclk from a non-master saif\n");
-		return -EINVAL;
+	mutex_lock(&mxs_saif_mutex);
+	saif = mxs_saif[saif_id];
+	if (!saif || !saif->mclk_ready) {
+		ret = -EPROBE_DEFER;
+		goto unlock;
 	}
-
-	stat = __raw_readl(saif->base + SAIF_STAT);
-	if (stat & BM_SAIF_STAT_BUSY) {
-		dev_err(saif->dev, "error: busy\n");
-		return -EBUSY;
+	if (saif != saif->master) {
+		ret = -EINVAL;
+		goto unlock;
 	}
-
-	saif->mclk_in_use = 1;
-	ret = mxs_saif_set_clk(saif, mclk, rate);
-	if (ret)
-		return ret;
+	if (saif->mclk_in_use) {
+		ret = -EBUSY;
+		goto unlock;
+	}
 
 	ret = clk_prepare_enable(saif->clk);
 	if (ret)
-		return ret;
-
-	/* enable MCLK output */
-	__raw_writel(BM_SAIF_CTRL_RUN,
-		saif->base + SAIF_CTRL + MXS_SET_ADDR);
-
-	return 0;
+		goto unlock;
+	ret = mxs_saif_set_clk(saif, mclk, rate);
+	if (ret)
+		goto disable_clk;
+	spin_lock_irqsave(&saif->reg_lock, flags);
+	saif->mclk_in_use = 1;
+	mxs_saif_update_run(saif, 0);
+	spin_unlock_irqrestore(&saif->reg_lock, flags);
+	clk_rate_exclusive_put(saif->mclk_clk);
+	goto unlock;
+disable_clk:
+	clk_disable_unprepare(saif->clk);
+unlock:
+	mutex_unlock(&mxs_saif_mutex);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(mxs_saif_get_mclk);
 
@@ -290,29 +341,12 @@ EXPORT_SYMBOL_GPL(mxs_saif_get_mclk);
  */
 static int mxs_saif_set_dai_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 {
-	u32 scr, stat;
-	u32 scr0;
+	u32 scr, mask;
 	struct mxs_saif *saif = snd_soc_dai_get_drvdata(cpu_dai);
+	struct mxs_saif *master = saif->master;
+	bool master_change, local_change;
+	int ret = 0;
 
-	stat = __raw_readl(saif->base + SAIF_STAT);
-	if (stat & BM_SAIF_STAT_BUSY) {
-		dev_err(cpu_dai->dev, "error: busy\n");
-		return -EBUSY;
-	}
-
-	/* If SAIF1 is configured as slave, the clk gate needs to be cleared
-	 * before the register can be written.
-	 */
-	if (saif->id != saif->master_id) {
-		__raw_writel(BM_SAIF_CTRL_SFTRST,
-			saif->base + SAIF_CTRL + MXS_CLR_ADDR);
-		__raw_writel(BM_SAIF_CTRL_CLKGATE,
-			saif->base + SAIF_CTRL + MXS_CLR_ADDR);
-	}
-
-	scr0 = __raw_readl(saif->base + SAIF_CTRL);
-	scr0 = scr0 & ~BM_SAIF_CTRL_BITCLK_EDGE & ~BM_SAIF_CTRL_LRCLK_POLARITY \
-		& ~BM_SAIF_CTRL_JUSTIFY & ~BM_SAIF_CTRL_DELAY;
 	scr = 0;
 
 	/* DAI mode */
@@ -350,6 +384,8 @@ static int mxs_saif_set_dai_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 		scr &= ~BM_SAIF_CTRL_BITCLK_EDGE;
 		scr &= ~BM_SAIF_CTRL_LRCLK_POLARITY;
 		break;
+	default:
+		return -EINVAL;
 	}
 
 	/*
@@ -361,18 +397,38 @@ static int mxs_saif_set_dai_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 	 */
 	switch (fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) {
 	case SND_SOC_DAIFMT_BP_FP:
-		if (saif->id == saif->master_id)
-			scr &= ~BM_SAIF_CTRL_SLAVE_MODE;
-		else
-			scr |= BM_SAIF_CTRL_SLAVE_MODE;
-
-		__raw_writel(scr | scr0, saif->base + SAIF_CTRL);
 		break;
 	default:
 		return -EINVAL;
 	}
 
-	return 0;
+	mask = BM_SAIF_CTRL_BITCLK_EDGE | BM_SAIF_CTRL_LRCLK_POLARITY |
+		BM_SAIF_CTRL_JUSTIFY | BM_SAIF_CTRL_DELAY | BM_SAIF_CTRL_SLAVE_MODE;
+	mutex_lock(&mxs_saif_mutex);
+	master_change = (__raw_readl(master->base + SAIF_CTRL) & mask) != scr;
+	local_change = saif != master &&
+		(__raw_readl(saif->base + SAIF_CTRL) & mask) !=
+		(scr | BM_SAIF_CTRL_SLAVE_MODE);
+	if (master_change &&
+	    (master->configured_users ||
+	     (__raw_readl(master->base + SAIF_STAT) & BM_SAIF_STAT_BUSY))) {
+		ret = -EBUSY;
+		goto unlock;
+	}
+	if (local_change &&
+	    (saif->configured ||
+	     (__raw_readl(saif->base + SAIF_STAT) & BM_SAIF_STAT_BUSY))) {
+		ret = -EBUSY;
+		goto unlock;
+	}
+	/* The clock-generating DAI need not itself have a card link. */
+	if (master_change)
+		mxs_saif_update_ctrl(master, mask, scr);
+	if (local_change)
+		mxs_saif_update_ctrl(saif, mask, scr | BM_SAIF_CTRL_SLAVE_MODE);
+unlock:
+	mutex_unlock(&mxs_saif_mutex);
+	return ret;
 }
 
 static int mxs_saif_startup(struct snd_pcm_substream *substream,
@@ -389,13 +445,8 @@ static int mxs_saif_startup(struct snd_pcm_substream *substream,
 	saif->fifo_underrun = 0;
 	saif->fifo_overrun = 0;
 
-	/* Clear Reset for normal operations */
-	__raw_writel(BM_SAIF_CTRL_SFTRST,
-		saif->base + SAIF_CTRL + MXS_CLR_ADDR);
-
-	/* clear clock gate */
-	__raw_writel(BM_SAIF_CTRL_CLKGATE,
-		saif->base + SAIF_CTRL + MXS_CLR_ADDR);
+	mxs_saif_update_ctrl(saif,
+			     BM_SAIF_CTRL_SFTRST | BM_SAIF_CTRL_CLKGATE, 0);
 
 	ret = clk_prepare(saif->clk);
 	if (ret)
@@ -426,64 +477,18 @@ static void mxs_saif_shutdown(struct snd_pcm_substream *substream,
  * Should only be called when port is inactive.
  * although can be called multiple times by upper layers.
  */
-static int mxs_saif_hw_params(struct snd_pcm_substream *substream,
-			     struct snd_pcm_hw_params *params,
-			     struct snd_soc_dai *cpu_dai)
+static int mxs_saif_configure(struct snd_pcm_substream *substream,
+			      struct snd_pcm_hw_params *params,
+			      struct snd_soc_dai *cpu_dai)
 {
 	struct mxs_saif *saif = snd_soc_dai_get_drvdata(cpu_dai);
-	struct mxs_saif *master_saif;
-	u32 scr, stat;
+	struct mxs_saif *master = saif->master;
+	unsigned long flags;
+	long rounded;
+	u32 scr, frame_mask;
 	int ret;
 
-	master_saif = mxs_saif_get_master(saif);
-	if (!master_saif)
-		return -EINVAL;
-
-	/* mclk should already be set */
-	if (!saif->mclk && saif->mclk_in_use) {
-		dev_err(cpu_dai->dev, "set mclk first\n");
-		return -EINVAL;
-	}
-
-	stat = __raw_readl(saif->base + SAIF_STAT);
-	if (!saif->mclk_in_use && (stat & BM_SAIF_STAT_BUSY)) {
-		dev_err(cpu_dai->dev, "error: busy\n");
-		return -EBUSY;
-	}
-
-	/*
-	 * Set saif clk based on sample rate.
-	 * If mclk is used, we also set mclk, if not, saif->mclk is
-	 * default 0, means not used.
-	 */
-	ret = mxs_saif_set_clk(saif, saif->mclk, params_rate(params));
-	if (ret) {
-		dev_err(cpu_dai->dev, "unable to get proper clk\n");
-		return ret;
-	}
-
-	if (saif != master_saif) {
-		/*
-		* Set an initial clock rate for the saif internal logic to work
-		* properly. This is important when working in EXTMASTER mode
-		* that uses the other saif's BITCLK&LRCLK but it still needs a
-		* basic clock which should be fast enough for the internal
-		* logic.
-		*/
-		ret = clk_enable(saif->clk);
-		if (ret)
-			return ret;
-
-		ret = clk_set_rate(saif->clk, 24000000);
-		clk_disable(saif->clk);
-		if (ret)
-			return ret;
-	}
-
-	scr = __raw_readl(saif->base + SAIF_CTRL);
-
-	scr &= ~BM_SAIF_CTRL_WORD_LENGTH;
-	scr &= ~BM_SAIF_CTRL_BITCLK_48XFS_ENABLE;
+	scr = 0;
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S16_LE:
 		scr |= BF_SAIF_CTRL_WORD_LENGTH(0);
@@ -500,17 +505,67 @@ static int mxs_saif_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	/* Tx/Rx config */
-	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		/* enable TX mode */
-		scr &= ~BM_SAIF_CTRL_READ_MODE;
-	} else {
-		/* enable RX mode */
+	frame_mask = BM_SAIF_CTRL_WORD_LENGTH | BM_SAIF_CTRL_BITCLK_48XFS_ENABLE;
+	if (master->configured_users &&
+	    (master->cur_rate != params_rate(params) || master->cur_mclk != saif->mclk ||
+	     (__raw_readl(master->base + SAIF_CTRL) & frame_mask) != scr))
+		return -EBUSY;
+	if (substream->stream == SNDRV_PCM_STREAM_CAPTURE)
 		scr |= BM_SAIF_CTRL_READ_MODE;
+	if (saif->configured) {
+		if ((__raw_readl(saif->base + SAIF_CTRL) &
+		     (frame_mask | BM_SAIF_CTRL_READ_MODE)) != scr)
+			return -EBUSY;
+		return 0;
 	}
 
-	__raw_writel(scr, saif->base + SAIF_CTRL);
+	ret = mxs_saif_set_clk(saif, saif->mclk, params_rate(params));
+	if (ret)
+		return ret;
+	if (saif != master) {
+		/* EXTMASTER still needs a functional clock for its internal logic. */
+		rounded = clk_round_rate(saif->clk, 24000000);
+		if (rounded <= 0) {
+			ret = rounded ? rounded : -EINVAL;
+			goto unprotect;
+		}
+		ret = clk_set_rate(saif->clk, 24000000);
+		if (ret)
+			goto unprotect;
+		ret = clk_rate_exclusive_get(saif->clk);
+		if (ret)
+			goto unprotect;
+		if (!mxs_saif_rate_matches(clk_get_rate(saif->clk), rounded)) {
+			ret = -EIO;
+			clk_rate_exclusive_put(saif->clk);
+			goto unprotect;
+		}
+	}
+
+	if (!master->configured_users)
+		mxs_saif_update_ctrl(master, frame_mask, scr);
+	mxs_saif_update_ctrl(saif,
+			     frame_mask | BM_SAIF_CTRL_READ_MODE, scr);
+	spin_lock_irqsave(&master->reg_lock, flags);
+	master->configured_users++;
+	saif->configured = true;
+	spin_unlock_irqrestore(&master->reg_lock, flags);
 	return 0;
+unprotect:
+	clk_rate_exclusive_put(saif->mclk_clk);
+	return ret;
+}
+
+static int mxs_saif_hw_params(struct snd_pcm_substream *substream,
+			      struct snd_pcm_hw_params *params,
+			      struct snd_soc_dai *cpu_dai)
+{
+	int ret;
+
+	mutex_lock(&mxs_saif_mutex);
+	ret = mxs_saif_configure(substream, params, cpu_dai);
+	mutex_unlock(&mxs_saif_mutex);
+	return ret;
 }
 
 static int mxs_saif_prepare(struct snd_pcm_substream *substream,
@@ -519,8 +574,8 @@ static int mxs_saif_prepare(struct snd_pcm_substream *substream,
 	struct mxs_saif *saif = snd_soc_dai_get_drvdata(cpu_dai);
 
 	/* enable FIFO error irqs */
-	__raw_writel(BM_SAIF_CTRL_FIFO_ERROR_IRQ_EN,
-		saif->base + SAIF_CTRL + MXS_SET_ADDR);
+	mxs_saif_update_ctrl(saif, BM_SAIF_CTRL_FIFO_ERROR_IRQ_EN,
+			     BM_SAIF_CTRL_FIFO_ERROR_IRQ_EN);
 
 	return 0;
 }
@@ -530,6 +585,7 @@ static int mxs_saif_do_trigger(struct snd_pcm_substream *substream, int cmd,
 {
 	struct mxs_saif *saif = snd_soc_dai_get_drvdata(cpu_dai);
 	struct mxs_saif *master_saif;
+	unsigned long flags;
 	u32 delay;
 	int ret;
 
@@ -543,6 +599,8 @@ static int mxs_saif_do_trigger(struct snd_pcm_substream *substream, int cmd,
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
 		if (saif->state == MXS_SAIF_STATE_RUNNING)
 			return 0;
+		if (!READ_ONCE(saif->configured))
+			return -EINVAL;
 
 		dev_dbg(cpu_dai->dev, "start\n");
 
@@ -564,13 +622,13 @@ static int mxs_saif_do_trigger(struct snd_pcm_substream *substream, int cmd,
 				return ret;
 			}
 
-			__raw_writel(BM_SAIF_CTRL_RUN,
-				saif->base + SAIF_CTRL + MXS_SET_ADDR);
+			mxs_saif_update_ctrl(saif, BM_SAIF_CTRL_RUN, BM_SAIF_CTRL_RUN);
 		}
 
-		if (!master_saif->mclk_in_use)
-			__raw_writel(BM_SAIF_CTRL_RUN,
-				master_saif->base + SAIF_CTRL + MXS_SET_ADDR);
+		spin_lock_irqsave(&master_saif->reg_lock, flags);
+		master_saif->ongoing++;
+		mxs_saif_update_run(master_saif, 0);
+		spin_unlock_irqrestore(&master_saif->reg_lock, flags);
 
 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 			/*
@@ -594,7 +652,6 @@ static int mxs_saif_do_trigger(struct snd_pcm_substream *substream, int cmd,
 			__raw_readl(saif->base + SAIF_DATA);
 		}
 
-		master_saif->ongoing = 1;
 		saif->state = MXS_SAIF_STATE_RUNNING;
 
 		dev_dbg(saif->dev, "CTRL 0x%x STAT 0x%x\n",
@@ -614,23 +671,21 @@ static int mxs_saif_do_trigger(struct snd_pcm_substream *substream, int cmd,
 		dev_dbg(cpu_dai->dev, "stop\n");
 
 		/* wait a while for the current sample to complete */
-		delay = USEC_PER_SEC / master_saif->cur_rate;
-
-		if (!master_saif->mclk_in_use) {
-			__raw_writel(BM_SAIF_CTRL_RUN,
-				master_saif->base + SAIF_CTRL + MXS_CLR_ADDR);
-			udelay(delay);
-		}
-		clk_disable(master_saif->clk);
+		delay = READ_ONCE(master_saif->stop_delay);
 
 		if (saif != master_saif) {
-			__raw_writel(BM_SAIF_CTRL_RUN,
-				saif->base + SAIF_CTRL + MXS_CLR_ADDR);
+			mxs_saif_update_ctrl(saif, BM_SAIF_CTRL_RUN, 0);
 			udelay(delay);
-			clk_disable(saif->clk);
 		}
 
-		master_saif->ongoing = 0;
+		spin_lock_irqsave(&master_saif->reg_lock, flags);
+		mxs_saif_update_run(master_saif, 1);
+		master_saif->ongoing--;
+		spin_unlock_irqrestore(&master_saif->reg_lock, flags);
+		if (saif != master_saif)
+			clk_disable(saif->clk);
+		clk_disable(master_saif->clk);
+
 		saif->state = MXS_SAIF_STATE_STOPPED;
 
 		break;
@@ -704,8 +759,27 @@ static int mxs_saif_sync_stop(struct snd_soc_component *component,
 static int mxs_saif_hw_free(struct snd_pcm_substream *substream,
 			    struct snd_soc_dai *dai)
 {
+	struct mxs_saif *saif = snd_soc_dai_get_drvdata(dai);
+	struct mxs_saif *master = saif->master;
+	unsigned long flags;
+	int ret;
+
 	/* Also terminate a paused/suspended stream before its buffer is freed. */
-	return mxs_saif_finish_stop(substream, dai);
+	ret = mxs_saif_finish_stop(substream, dai);
+	if (ret)
+		return ret;
+	mutex_lock(&mxs_saif_mutex);
+	if (saif->configured) {
+		spin_lock_irqsave(&master->reg_lock, flags);
+		saif->configured = false;
+		master->configured_users--;
+		spin_unlock_irqrestore(&master->reg_lock, flags);
+		if (saif != master)
+			clk_rate_exclusive_put(saif->clk);
+		clk_rate_exclusive_put(saif->mclk_clk);
+	}
+	mutex_unlock(&mxs_saif_mutex);
+	return 0;
 }
 
 #define MXS_SAIF_RATES		SNDRV_PCM_RATE_8000_192000
@@ -776,31 +850,217 @@ static irqreturn_t mxs_saif_irq(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/* BITCLK_MULT_RATE divides the 512fs/384fs input, not the sample rate. */
+static const struct clk_div_table mxs_saif_mclk_dividers[] = {
+	{ 0, 1 },
+	{ 1, 2 },
+	{ 2, 4 },
+	{ 3, 8 },
+	{ 4, 16 },
+	{ /* sentinel */ }
+};
+
+static struct mxs_saif *hw_to_saif(struct clk_hw *hw)
+{
+	return container_of(hw, struct mxs_saif, mclk_hw);
+}
+
+static unsigned long mxs_saif_mclk_recalc_rate(struct clk_hw *hw,
+					       unsigned long parent_rate)
+{
+	struct mxs_saif *saif = hw_to_saif(hw);
+	unsigned long flags;
+	u32 ctrl, base;
+
+	spin_lock_irqsave(&saif->reg_lock, flags);
+	ctrl = __raw_readl(saif->base + SAIF_CTRL);
+	base = ctrl & BM_SAIF_CTRL_BITCLK_BASE_RATE ? 384 : 512;
+	if (parent_rate)
+		saif->stop_delay = DIV_ROUND_UP_ULL((u64)base * USEC_PER_SEC, parent_rate);
+	spin_unlock_irqrestore(&saif->reg_lock, flags);
+	return divider_recalc_rate(hw, parent_rate,
+		(ctrl & BM_SAIF_CTRL_BITCLK_MULT_RATE) >> BP_SAIF_CTRL_BITCLK_MULT_RATE,
+		mxs_saif_mclk_dividers, 0, 3);
+}
+
+static int mxs_saif_mclk_determine_rate(struct clk_hw *hw,
+					struct clk_rate_request *req)
+{
+	return divider_determine_rate(hw, req, mxs_saif_mclk_dividers, 3, 0);
+}
+
+static int mxs_saif_mclk_set_rate(struct clk_hw *hw, unsigned long rate,
+				  unsigned long parent_rate)
+{
+	struct mxs_saif *saif = hw_to_saif(hw);
+	unsigned long flags;
+	u32 ctrl, value;
+	int divider, ret = 0;
+
+	divider = divider_get_val(rate, parent_rate, mxs_saif_mclk_dividers, 3, 0);
+	if (divider < 0)
+		return divider;
+	value = BF_SAIF_CTRL_BITCLK_MULT_RATE(divider);
+	spin_lock_irqsave(&saif->reg_lock, flags);
+	ctrl = __raw_readl(saif->base + SAIF_CTRL);
+	if (saif->configured_users &&
+	    (ctrl & BM_SAIF_CTRL_BITCLK_MULT_RATE) != value)
+		ret = -EBUSY;
+	else
+		__raw_writel((ctrl & ~BM_SAIF_CTRL_BITCLK_MULT_RATE) | value,
+			     saif->base + SAIF_CTRL);
+	spin_unlock_irqrestore(&saif->reg_lock, flags);
+	return ret;
+}
+
+static int mxs_saif_mclk_prepare(struct clk_hw *hw)
+{
+	unsigned long rate = clk_hw_get_rate(clk_hw_get_parent(hw));
+
+	return rate ? 0 : -EINVAL;
+}
+
+static int mxs_saif_mclk_enable(struct clk_hw *hw)
+{
+	struct mxs_saif *saif = hw_to_saif(hw);
+	unsigned long flags;
+
+	spin_lock_irqsave(&saif->reg_lock, flags);
+	saif->ccf_enabled = true;
+	mxs_saif_update_run(saif, 0);
+	spin_unlock_irqrestore(&saif->reg_lock, flags);
+	return 0;
+}
+
+static void mxs_saif_mclk_disable(struct clk_hw *hw)
+{
+	struct mxs_saif *saif = hw_to_saif(hw);
+	unsigned long flags;
+
+	spin_lock_irqsave(&saif->reg_lock, flags);
+	saif->ccf_enabled = false;
+	mxs_saif_update_run(saif, 0);
+	spin_unlock_irqrestore(&saif->reg_lock, flags);
+}
+
+static int mxs_saif_mclk_is_enabled(struct clk_hw *hw)
+{
+	struct mxs_saif *saif = hw_to_saif(hw);
+	u32 ctrl = __raw_readl(saif->base + SAIF_CTRL);
+
+	return (ctrl & (BM_SAIF_CTRL_RUN | BM_SAIF_CTRL_CLKGATE |
+		       BM_SAIF_CTRL_SFTRST)) == BM_SAIF_CTRL_RUN;
+}
+
+static const struct clk_ops mxs_saif_mclk_ops = {
+	.prepare = mxs_saif_mclk_prepare,
+	.enable = mxs_saif_mclk_enable,
+	.disable = mxs_saif_mclk_disable,
+	.is_enabled = mxs_saif_mclk_is_enabled,
+	.recalc_rate = mxs_saif_mclk_recalc_rate,
+	.determine_rate = mxs_saif_mclk_determine_rate,
+	.set_rate = mxs_saif_mclk_set_rate,
+};
+
 static int mxs_saif_mclk_init(struct platform_device *pdev)
 {
 	struct mxs_saif *saif = platform_get_drvdata(pdev);
-	struct device_node *np = pdev->dev.of_node;
-	struct clk *clk;
+	const char *parent_name = __clk_get_name(saif->clk);
+	struct clk_init_data init = {
+		.name = "mxs_saif_mclk",
+		.ops = &mxs_saif_mclk_ops,
+		.parent_names = &parent_name,
+		.num_parents = 1,
+		.flags = CLK_GET_RATE_NOCACHE | CLK_OPS_PARENT_ENABLE,
+	};
 	int ret;
 
-	clk = clk_register_divider(&pdev->dev, "mxs_saif_mclk",
-				   __clk_get_name(saif->clk), 0,
-				   saif->base + SAIF_CTRL,
-				   BP_SAIF_CTRL_BITCLK_MULT_RATE, 3,
-				   0, NULL);
-	if (IS_ERR(clk)) {
-		ret = PTR_ERR(clk);
-		if (ret == -EEXIST)
-			return 0;
-		dev_err(&pdev->dev, "failed to register mclk: %d\n", ret);
-		return PTR_ERR(clk);
+	if (saif->id) {
+		init.name = devm_kasprintf(&pdev->dev, GFP_KERNEL, "%s-mclk",
+					   dev_name(&pdev->dev));
+		if (!init.name)
+			return -ENOMEM;
 	}
-
-	ret = of_clk_add_provider(np, of_clk_src_simple_get, clk);
+	saif->mclk_hw.init = &init;
+	ret = devm_clk_hw_register(&pdev->dev, &saif->mclk_hw);
 	if (ret)
 		return ret;
+	return devm_of_clk_add_hw_provider(&pdev->dev, of_clk_hw_simple_get,
+					 &saif->mclk_hw);
+}
 
-	return 0;
+static void mxs_saif_unpublish(void *data)
+{
+	struct mxs_saif *saif = data;
+
+	mutex_lock(&mxs_saif_mutex);
+	if (mxs_saif[saif->id] == saif)
+		mxs_saif[saif->id] = NULL;
+	mutex_unlock(&mxs_saif_mutex);
+}
+
+static int mxs_saif_init_master(struct mxs_saif *saif)
+{
+	struct device_node *np;
+	struct platform_device *pdev;
+	struct device_link *link;
+	struct mxs_saif *master;
+	int ret = -EPROBE_DEFER;
+
+	np = of_parse_phandle(saif->dev->of_node, "fsl,saif-master", 0);
+	if (!np || np == saif->dev->of_node) {
+		of_node_put(np);
+		saif->master = saif;
+		return 0;
+	}
+	pdev = of_find_device_by_node(np);
+	of_node_put(np);
+	if (!pdev)
+		return -EPROBE_DEFER;
+
+	link = device_link_add(saif->dev, &pdev->dev, DL_FLAG_AUTOREMOVE_CONSUMER);
+	if (!link) {
+		ret = -EINVAL;
+		goto put_device;
+	}
+	/* A completed supplier probe is required, including driver-core setup. */
+	if (READ_ONCE(link->status) != DL_STATE_CONSUMER_PROBE ||
+	    READ_ONCE(pdev->dev.links.status) != DL_DEV_DRIVER_BOUND)
+		goto put_device;
+
+	if (READ_ONCE(pdev->dev.driver) != &mxs_saif_driver.driver) {
+		ret = -EINVAL;
+		goto put_device;
+	}
+	master = platform_get_drvdata(pdev);
+	if (!master || !READ_ONCE(master->mclk_ready))
+		goto put_device;
+	if (master->master != master) {
+		ret = -EINVAL;
+		goto put_device;
+	}
+	saif->master = master;
+	ret = 0;
+put_device:
+	put_device(&pdev->dev);
+	return ret;
+}
+
+static void mxs_saif_clk_put(void *data)
+{
+	clk_put(data);
+}
+
+static int mxs_saif_get_mclk_clk(struct mxs_saif *saif)
+{
+	struct of_phandle_args clkspec = { .np = saif->master->dev->of_node };
+
+	/* Each DAI is a consumer, even when its clock belongs to another SAIF. */
+	saif->mclk_clk = of_clk_get_from_provider(&clkspec);
+	if (IS_ERR(saif->mclk_clk))
+		return PTR_ERR(saif->mclk_clk);
+
+	return devm_add_action_or_reset(saif->dev, mxs_saif_clk_put, saif->mclk_clk);
 }
 
 static int mxs_saif_probe(struct platform_device *pdev)
@@ -808,11 +1068,13 @@ static int mxs_saif_probe(struct platform_device *pdev)
 	struct device_node *np = pdev->dev.of_node;
 	struct mxs_saif *saif;
 	int irq, ret;
-	struct device_node *master;
 
 	saif = devm_kzalloc(&pdev->dev, sizeof(*saif), GFP_KERNEL);
 	if (!saif)
 		return -ENOMEM;
+	saif->dev = &pdev->dev;
+	spin_lock_init(&saif->reg_lock);
+	saif->stop_delay = 125;
 
 	ret = of_alias_get_id(np, "saif");
 	if (ret < 0)
@@ -825,29 +1087,9 @@ static int mxs_saif_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	/*
-	 * If there is no "fsl,saif-master" phandle, it's a saif
-	 * master.  Otherwise, it's a slave and its phandle points
-	 * to the master.
-	 */
-	master = of_parse_phandle(np, "fsl,saif-master", 0);
-	if (!master) {
-		saif->master_id = saif->id;
-	} else {
-		ret = of_alias_get_id(master, "saif");
-		of_node_put(master);
-		if (ret < 0)
-			return ret;
-		else
-			saif->master_id = ret;
-
-		if (saif->master_id >= ARRAY_SIZE(mxs_saif)) {
-			dev_err(&pdev->dev, "get wrong master id\n");
-			return -EINVAL;
-		}
-	}
-
-	mxs_saif[saif->id] = saif;
+	ret = mxs_saif_init_master(saif);
+	if (ret)
+		return dev_err_probe(&pdev->dev, ret, "clock master is unavailable\n");
 
 	saif->clk = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(saif->clk)) {
@@ -860,12 +1102,31 @@ static int mxs_saif_probe(struct platform_device *pdev)
 	saif->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(saif->base))
 		return PTR_ERR(saif->base);
+	/* Establish framing independently of firmware and before publishing MCLK. */
+	ret = clk_prepare_enable(saif->clk);
+	if (ret)
+		return ret;
+	mxs_saif_update_ctrl(saif, BM_SAIF_CTRL_SFTRST, 0);
+	mxs_saif_update_ctrl(saif, BM_SAIF_CTRL_CLKGATE, 0);
+	mxs_saif_update_ctrl(saif, BM_SAIF_CTRL_RUN, 0);
+	udelay(saif->stop_delay);
+	mxs_saif_update_ctrl(saif,
+			     BM_SAIF_CTRL_SFTRST | BM_SAIF_CTRL_CLKGATE |
+			     BM_SAIF_CTRL_SLAVE_MODE | BM_SAIF_CTRL_WORD_LENGTH |
+			     BM_SAIF_CTRL_BITCLK_48XFS_ENABLE | BM_SAIF_CTRL_READ_MODE |
+			     BM_SAIF_CTRL_BITCLK_MULT_RATE | BM_SAIF_CTRL_BITCLK_BASE_RATE |
+			     BM_SAIF_CTRL_BITCLK_EDGE | BM_SAIF_CTRL_LRCLK_POLARITY |
+			     BM_SAIF_CTRL_JUSTIFY | BM_SAIF_CTRL_DELAY |
+			     BM_SAIF_CTRL_CHANNEL_NUM_SELECT | BM_SAIF_CTRL_LRCLK_PULSE |
+			     BM_SAIF_CTRL_BIT_ORDER,
+			     BM_SAIF_CTRL_DELAY |
+			     (saif != saif->master ? BM_SAIF_CTRL_SLAVE_MODE : 0));
+	clk_disable_unprepare(saif->clk);
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
 		return irq;
 
-	saif->dev = &pdev->dev;
 	ret = devm_request_irq(&pdev->dev, irq, mxs_saif_irq, 0,
 			       dev_name(&pdev->dev), saif);
 	if (ret) {
@@ -874,13 +1135,19 @@ static int mxs_saif_probe(struct platform_device *pdev)
 	}
 
 	platform_set_drvdata(pdev, saif);
+	/* Components must be removed before their legacy clock lookup is cleared. */
+	ret = devm_add_action_or_reset(&pdev->dev, mxs_saif_unpublish, saif);
+	if (ret)
+		return ret;
 
-	/* We only support saif0 being tx and clock master */
-	if (saif->id == 0) {
+	if (saif == saif->master) {
 		ret = mxs_saif_mclk_init(pdev);
 		if (ret)
-			dev_warn(&pdev->dev, "failed to init clocks\n");
+			return ret;
 	}
+	ret = mxs_saif_get_mclk_clk(saif);
+	if (ret)
+		return ret;
 
 	ret = devm_snd_soc_register_component(&pdev->dev, &mxs_saif_component,
 					      &mxs_saif_dai, 1);
@@ -895,6 +1162,27 @@ static int mxs_saif_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+	/* Do not expose partially initialized or failed probes to MCLK users. */
+	mutex_lock(&mxs_saif_mutex);
+	if (mxs_saif[saif->id]) {
+		mutex_unlock(&mxs_saif_mutex);
+		return -EBUSY;
+	}
+	saif->mclk_ready = true;
+	mxs_saif[saif->id] = saif;
+	mutex_unlock(&mxs_saif_mutex);
+
+	return 0;
+}
+
+static int mxs_saif_remove(struct platform_device *pdev)
+{
+	struct mxs_saif *saif = platform_get_drvdata(pdev);
+
+	/* Reject new acquisitions while component teardown releases existing ones. */
+	mutex_lock(&mxs_saif_mutex);
+	saif->mclk_ready = false;
+	mutex_unlock(&mxs_saif_mutex);
 	return 0;
 }
 
@@ -906,6 +1194,7 @@ MODULE_DEVICE_TABLE(of, mxs_saif_dt_ids);
 
 static struct platform_driver mxs_saif_driver = {
 	.probe = mxs_saif_probe,
+	.remove = mxs_saif_remove,
 
 	.driver = {
 		.name = "mxs-saif",

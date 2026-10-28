@@ -20,3 +20,15 @@ config SND_SOC_MXS_SGTL5000
 	  a sgtl5000 codec.
 
 endif	# SND_MXS_SOC
+
+config SND_SOC_MXS_SAIF_KUNIT_TEST
+	tristate "KUnit tests for MXS SAIF clock configuration" if !KUNIT_ALL_TESTS
+	depends on KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  Test the MXS SAIF MCLK ratio selection and parent rate validation.
+	  Exercise both clock families, invalid rates and integer overflow
+	  without requiring MXS hardware. This does not emulate the controller
+	  or test physical clock gating and audio transfers.
+
+	  If unsure, say N.

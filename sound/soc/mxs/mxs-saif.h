@@ -95,18 +95,31 @@
 
 #define MXS_SAIF_MCLK		0
 
+#include <linux/spinlock.h>
+#include <linux/clk-provider.h>
+
 #include "mxs-pcm.h"
 
 struct mxs_saif {
 	struct device *dev;
 	struct clk *clk;
+	struct clk_hw mclk_hw;
+	struct clk *mclk_clk;
+	spinlock_t reg_lock; /* Protects SAIF_CTRL and generator users. */
 	unsigned int mclk;
 	unsigned int mclk_in_use;
+	bool mclk_ready;
 	void __iomem *base;
 	unsigned int id;
-	unsigned int master_id;
+	struct mxs_saif *master;
 	unsigned int cur_rate;
-	unsigned int ongoing;
+	unsigned int ongoing; /* Active PCM users of this clock master. */
+	unsigned int configured_users;
+	unsigned int cur_mclk;
+	unsigned long parent_rate;
+	unsigned int stop_delay;
+	bool ccf_enabled;
+	bool configured;
 
 	u32 fifo_underrun;
 	u32 fifo_overrun;
@@ -118,6 +131,7 @@ struct mxs_saif {
 	bool stop_pending;
 };
 
+/* Sleepable, single-owner API; keep the provider bound until put succeeds. */
 extern int mxs_saif_put_mclk(unsigned int saif_id);
 extern int mxs_saif_get_mclk(unsigned int saif_id, unsigned int mclk,
 					unsigned int rate);
