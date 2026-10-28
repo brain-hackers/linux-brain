@@ -201,8 +201,8 @@ static void __init mx28_clocks_init(struct device_node *np)
 	clks[lcdif_div] = mxs_clk_div("lcdif_div", "lcdif_sel", LCDIF, 0, 13, 29);
 	clks[etm_div] = mxs_clk_div("etm_div", "etm_sel", ETM, 0, 7, 29);
 	clks[ptp] = mxs_clk_div("ptp", "ptp_sel", ENET, 21, 6, 27);
-	clks[saif0_div] = mxs_clk_frac("saif0_div", "saif0_sel", SAIF0, 0, 16, 29);
-	clks[saif1_div] = mxs_clk_frac("saif1_div", "saif1_sel", SAIF1, 0, 16, 29);
+	clks[saif0_div] = mxs_clk_frac_gate("saif0_div", "saif0_sel", SAIF0, 0, 16, 29, 31);
+	clks[saif1_div] = mxs_clk_frac_gate("saif1_div", "saif1_sel", SAIF1, 0, 16, 29, 31);
 	clks[clk32k_div] = mxs_clk_fixed_factor("clk32k_div", "ref_xtal", 1, 750);
 	clks[rtc] = mxs_clk_fixed_factor("rtc", "ref_xtal", 1, 768);
 	clks[lradc] = mxs_clk_fixed_factor("lradc", "clk32k", 1, 16);
@@ -217,8 +217,8 @@ static void __init mx28_clocks_init(struct device_node *np)
 	clks[gpmi] = mxs_clk_gate("gpmi", "gpmi_div", GPMI, 31);
 	clks[spdif] = mxs_clk_gate("spdif", "spdif_div", SPDIF, 31);
 	clks[emi] = mxs_clk_gate("emi", "emi_sel", EMI, 31);
-	clks[saif0] = mxs_clk_gate("saif0", "saif0_div", SAIF0, 31);
-	clks[saif1] = mxs_clk_gate("saif1", "saif1_div", SAIF1, 31);
+	clks[saif0] = mxs_clk_fixed_factor("saif0", "saif0_div", 1, 1);
+	clks[saif1] = mxs_clk_fixed_factor("saif1", "saif1_div", 1, 1);
 	clks[lcdif] = mxs_clk_gate("lcdif", "lcdif_div", LCDIF, 31);
 	clks[etm] = mxs_clk_gate("etm", "etm_div", ETM, 31);
 	clks[fec] = mxs_clk_gate("fec", "hbus", ENET, 30);

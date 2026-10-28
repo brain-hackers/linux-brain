@@ -12,6 +12,7 @@
 /**
  * struct clk_frac - mxs fractional divider clock
  * @hw: clk_hw for the fractional divider clock
+ * @gate: optional gate for divider updates that require an ungated clock
  * @reg: register address
  * @shift: the divider bit shift
  * @width: the divider bit width
@@ -22,6 +23,7 @@
  */
 struct clk_frac {
 	struct clk_hw hw;
+	struct clk_gate gate;
 	void __iomem *reg;
 	u8 shift;
 	u8 width;
@@ -77,6 +79,7 @@ static int clk_frac_set_rate(struct clk_hw *hw, unsigned long rate,
 	unsigned long flags;
 	u32 div, val;
 	u64 tmp;
+	int ret;
 
 	if (rate > parent_rate)
 		return -EINVAL;
@@ -89,6 +92,16 @@ static int clk_frac_set_rate(struct clk_hw *hw, unsigned long rate,
 	if (!div)
 		return -EINVAL;
 
+	/* Gated dividers must be idle before changing DIV. */
+	if (frac->gate.reg) {
+		ret = mxs_clk_wait(frac->reg, frac->busy);
+		if (ret) {
+			pr_err("%s: timed out waiting for divider BUSY to clear before changing DIV\n",
+			       clk_hw_get_name(hw));
+			return ret;
+		}
+	}
+
 	spin_lock_irqsave(&mxs_lock, flags);
 
 	val = readl_relaxed(frac->reg);
@@ -98,7 +111,11 @@ static int clk_frac_set_rate(struct clk_hw *hw, unsigned long rate,
 
 	spin_unlock_irqrestore(&mxs_lock, flags);
 
-	return mxs_clk_wait(frac->reg, frac->busy);
+	ret = mxs_clk_wait(frac->reg, frac->busy);
+	if (ret && frac->gate.reg)
+		pr_err("%s: timed out waiting for divider rate change to complete\n",
+		       clk_hw_get_name(hw));
+	return ret;
 }
 
 static const struct clk_ops clk_frac_ops = {
@@ -131,6 +148,37 @@ struct clk *mxs_clk_frac(const char *name, const char *parent_name,
 	frac->hw.init = &init;
 
 	clk = clk_register(NULL, &frac->hw);
+	if (IS_ERR(clk))
+		kfree(frac);
+
+	return clk;
+}
+
+struct clk *mxs_clk_frac_gate(const char *name, const char *parent_name,
+			      void __iomem *reg, u8 shift, u8 width, u8 busy,
+			      u8 gate)
+{
+	struct clk_frac *frac;
+	struct clk *clk;
+
+	frac = kzalloc(sizeof(*frac), GFP_KERNEL);
+	if (!frac)
+		return ERR_PTR(-ENOMEM);
+
+	frac->reg = reg;
+	frac->shift = shift;
+	frac->width = width;
+	frac->busy = busy;
+	frac->gate.reg = reg;
+	frac->gate.bit_idx = gate;
+	frac->gate.flags = CLK_GATE_SET_TO_DISABLE;
+	frac->gate.lock = &mxs_lock;
+
+	/* DIV may only change after a separate write clears CLKGATE. */
+	clk = clk_register_composite(NULL, name, &parent_name, 1, NULL, NULL,
+				     &frac->hw, &clk_frac_ops,
+				     &frac->gate.hw, &clk_gate_ops,
+				     CLK_SET_RATE_PARENT | CLK_SET_RATE_UNGATE);
 	if (IS_ERR(clk))
 		kfree(frac);
 
