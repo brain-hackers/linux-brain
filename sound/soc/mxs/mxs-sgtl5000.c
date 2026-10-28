@@ -7,6 +7,8 @@
 #include <linux/device.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
+#include <linux/of_platform.h>
+#include <linux/platform_device.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/soc.h>
@@ -106,6 +108,37 @@ static struct snd_soc_card mxs_sgtl5000 = {
 	.num_links	= ARRAY_SIZE(mxs_sgtl5000_dai),
 };
 
+static void mxs_sgtl5000_put_mclk(void *data)
+{
+	struct device *dev = data;
+	int ret;
+
+	ret = mxs_saif_put_mclk(0);
+	if (ret)
+		dev_err(dev, "failed to release mclk: %d\n", ret);
+}
+
+static int mxs_sgtl5000_link_mclk(struct device *dev, struct device_node *np)
+{
+	struct platform_device *supplier;
+	struct device_link *link;
+	int ret = -EPROBE_DEFER;
+
+	supplier = of_find_device_by_node(np);
+	if (!supplier)
+		return -EPROBE_DEFER;
+
+	link = device_link_add(dev, &supplier->dev, DL_FLAG_AUTOREMOVE_CONSUMER);
+	if (!link)
+		ret = -EINVAL;
+	else if (READ_ONCE(link->status) == DL_STATE_CONSUMER_PROBE &&
+		 READ_ONCE(supplier->dev.links.status) == DL_DEV_DRIVER_BOUND)
+		ret = 0;
+
+	put_device(&supplier->dev);
+	return ret;
+}
+
 static int mxs_sgtl5000_probe(struct platform_device *pdev)
 {
 	struct snd_soc_card *card = &mxs_sgtl5000;
@@ -133,9 +166,13 @@ static int mxs_sgtl5000_probe(struct platform_device *pdev)
 		mxs_sgtl5000_dai[i].platforms->of_node = saif_np[i];
 	}
 
+	/* Keep the fully bound clock supplier available through card teardown. */
+	ret = mxs_sgtl5000_link_mclk(&pdev->dev, saif_np[0]);
 	of_node_put(codec_np);
 	of_node_put(saif_np[0]);
 	of_node_put(saif_np[1]);
+	if (ret)
+		return dev_err_probe(&pdev->dev, ret, "clock supplier is unavailable\n");
 
 	/*
 	 * Set an init clock(11.28Mhz) for sgtl5000 initialization(i2c r/w).
@@ -147,6 +184,12 @@ static int mxs_sgtl5000_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "failed to get mclk\n");
 		return ret;
 	}
+
+	/* Release MCLK after the subsequently registered managed card. */
+	ret = devm_add_action_or_reset(&pdev->dev, mxs_sgtl5000_put_mclk,
+				       &pdev->dev);
+	if (ret)
+		return ret;
 
 	card->dev = &pdev->dev;
 
@@ -169,13 +212,6 @@ static int mxs_sgtl5000_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int mxs_sgtl5000_remove(struct platform_device *pdev)
-{
-	mxs_saif_put_mclk(0);
-
-	return 0;
-}
-
 static const struct of_device_id mxs_sgtl5000_dt_ids[] = {
 	{ .compatible = "fsl,mxs-audio-sgtl5000", },
 	{ /* sentinel */ }
@@ -188,7 +224,6 @@ static struct platform_driver mxs_sgtl5000_audio_driver = {
 		.of_match_table = mxs_sgtl5000_dt_ids,
 	},
 	.probe = mxs_sgtl5000_probe,
-	.remove = mxs_sgtl5000_remove,
 };
 
 module_platform_driver(mxs_sgtl5000_audio_driver);
