@@ -1,0 +1,75 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/sound/rohm,bu26154.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: ROHM BU26154MUV audio codec
+
+maintainers:
+  - Ming <sharp-brain-dev@myli.page>
+
+description: |
+  Audio codec with a mono microphone ADC and an I2S interface using an
+  external MCLK.
+  HPVDD, HPVSS, REGOUT and VMID are generated outputs, not external supplies.
+
+properties:
+  compatible:
+    const: rohm,bu26154
+
+  reg:
+    enum: [0x1a, 0x1b]
+
+  clocks:
+    maxItems: 1
+
+  clock-names:
+    const: mclk
+
+  '#sound-dai-cells':
+    description: 0 selects DAC playback; 1 selects ADC capture.
+    const: 1
+
+  HVDD-supply:
+    description: Main analog and digital interface supply.
+
+  CPVDD-supply:
+    description: Headphone charge-pump supply.
+
+  SPVDD-supply:
+    description: Speaker amplifier supply.
+
+  TVDD-supply:
+    description: I/O supply.
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - clock-names
+  - '#sound-dai-cells'
+  - HVDD-supply
+  - CPVDD-supply
+  - SPVDD-supply
+  - TVDD-supply
+
+additionalProperties: false
+
+examples:
+  - |
+    i2c {
+        #address-cells = <1>;
+        #size-cells = <0>;
+        codec@1a {
+            compatible = "rohm,bu26154";
+            reg = <0x1a>;
+            #sound-dai-cells = <1>;
+            clocks = <&audio_mclk>;
+            clock-names = "mclk";
+            HVDD-supply = <&codec_supply>;
+            CPVDD-supply = <&codec_supply>;
+            SPVDD-supply = <&codec_supply>;
+            TVDD-supply = <&codec_supply>;
+        };
+    };
