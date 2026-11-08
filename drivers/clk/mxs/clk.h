@@ -30,6 +30,10 @@ struct clk *mxs_clk_div(const char *name, const char *parent_name,
 struct clk *mxs_clk_frac(const char *name, const char *parent_name,
 			 void __iomem *reg, u8 shift, u8 width, u8 busy);
 
+struct clk *mxs_clk_frac_gate(const char *name, const char *parent_name,
+			      void __iomem *reg, u8 shift, u8 width, u8 busy,
+			      u8 gate);
+
 static inline struct clk *mxs_clk_fixed(const char *name, int rate)
 {
 	return clk_register_fixed_rate(NULL, name, NULL, 0, rate);
