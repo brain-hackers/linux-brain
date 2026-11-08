@@ -1,0 +1,43 @@
+.. SPDX-License-Identifier: GPL-2.0-only
+
+=====================
+ROHM BU26154MUV codec
+=====================
+
+The driver supports single-ended microphone capture and mono speaker
+playback at 44.1 kHz, S16_LE, with two I2S slots. The codec consumes the
+bit/frame clocks and requires an external 512fs MCLK (22.5792 MHz nominal).
+Headphone output and simultaneous capture/playback are not supported.
+
+DAI links
+=========
+
+The codec exposes two unidirectional DAIs sharing clocks and power state:
+
+* DAI 0, ``bu26154-dac``: playback; both PCM channels feed the speaker.
+* DAI 1, ``bu26154-adc``: capture; the mono ADC occupies the left slot and
+  the right slot is zero.
+
+Use ``#sound-dai-cells = <1>`` and reference ``<&codec 0>`` or ``<&codec 1>``
+from ordinary sound-card links. ASoC derives each link's direction from its
+DAI capabilities. Only one stream may be open across the two DAIs.
+
+Clock and supplies
+==================
+
+MCLK must be available before component initialization. Stream startup
+retains a clock reference through register access; DAPM retains a separate
+reference while its audio path is powered. The driver accepts up to 0.1%
+MCLK divider rounding, not a different MCLK/sample-rate ratio.
+
+The board must describe the HVDD, CPVDD, SPVDD and TVDD inputs. HPVDD, HPVSS,
+REGOUT and VMID are generated outputs, not external supplies. See
+``Documentation/devicetree/bindings/sound/rohm,bu26154.yaml``.
+
+Controls
+========
+
+``Mic Capture Volume`` provides 6--27 dB in 3 dB steps. Speaker playback
+defaults off and muted; enable ``Speaker Playback Switch`` and set
+``Playback Volume`` explicitly. The latter uses 0 for mute and 1--143 for
+-71.5 to -0.5 dB in 0.5 dB steps. Analog attenuation is fixed at -12 dB.
