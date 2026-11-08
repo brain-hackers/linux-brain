@@ -19,6 +19,7 @@
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
+#include <sound/dmaengine_pcm.h>
 
 #include "mxs-saif.h"
 
@@ -378,7 +379,11 @@ static int mxs_saif_startup(struct snd_pcm_substream *substream,
 			   struct snd_soc_dai *cpu_dai)
 {
 	struct mxs_saif *saif = snd_soc_dai_get_drvdata(cpu_dai);
+	struct mxs_saif *master_saif = mxs_saif_get_master(saif);
 	int ret;
+
+	if (!master_saif)
+		return -EINVAL;
 
 	/* clear error status to 0 for each re-open */
 	saif->fifo_underrun = 0;
@@ -395,6 +400,13 @@ static int mxs_saif_startup(struct snd_pcm_substream *substream,
 	ret = clk_prepare(saif->clk);
 	if (ret)
 		return ret;
+	if (saif != master_saif) {
+		ret = clk_prepare(master_saif->clk);
+		if (ret) {
+			clk_unprepare(saif->clk);
+			return ret;
+		}
+	}
 
 	return 0;
 }
@@ -403,7 +415,10 @@ static void mxs_saif_shutdown(struct snd_pcm_substream *substream,
 			      struct snd_soc_dai *cpu_dai)
 {
 	struct mxs_saif *saif = snd_soc_dai_get_drvdata(cpu_dai);
+	struct mxs_saif *master_saif = mxs_saif_get_master(saif);
 
+	if (saif != master_saif)
+		clk_unprepare(master_saif->clk);
 	clk_unprepare(saif->clk);
 }
 
@@ -463,10 +478,6 @@ static int mxs_saif_hw_params(struct snd_pcm_substream *substream,
 		clk_disable(saif->clk);
 		if (ret)
 			return ret;
-
-		ret = clk_prepare(master_saif->clk);
-		if (ret)
-			return ret;
 	}
 
 	scr = __raw_readl(saif->base + SAIF_CTRL);
@@ -514,8 +525,8 @@ static int mxs_saif_prepare(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-static int mxs_saif_trigger(struct snd_pcm_substream *substream, int cmd,
-				struct snd_soc_dai *cpu_dai)
+static int mxs_saif_do_trigger(struct snd_pcm_substream *substream, int cmd,
+			       struct snd_soc_dai *cpu_dai)
 {
 	struct mxs_saif *saif = snd_soc_dai_get_drvdata(cpu_dai);
 	struct mxs_saif *master_saif;
@@ -630,6 +641,73 @@ static int mxs_saif_trigger(struct snd_pcm_substream *substream, int cmd,
 	return 0;
 }
 
+static int mxs_saif_finish_stop(struct snd_pcm_substream *substream,
+				struct snd_soc_dai *dai)
+{
+	struct mxs_saif *saif = snd_soc_dai_get_drvdata(dai);
+	struct dma_chan *chan = snd_dmaengine_pcm_get_chan(substream);
+	int ret;
+
+	do {
+		ret = dmaengine_terminate_async(chan);
+		if (ret) {
+			dev_err_ratelimited(dai->dev, "cannot terminate DMA: %d\n", ret);
+			msleep(20);
+		}
+	} while (ret);
+
+	/*
+	 * A paused/suspended FIFO may need restarting to drain its terminated
+	 * ring. Buffers still belong to this stream until sync_stop/hw_free
+	 * returns. Never return a clock error while DMA can still access them.
+	 */
+	while (saif->state != MXS_SAIF_STATE_RUNNING &&
+	       dmaengine_tx_status(chan, chan->cookie, NULL) == DMA_IN_PROGRESS) {
+		ret = mxs_saif_do_trigger(substream, SNDRV_PCM_TRIGGER_RESUME, dai);
+		if (!ret)
+			break;
+		dev_err_ratelimited(dai->dev, "cannot clock terminating DMA: %d\n", ret);
+		msleep(20);
+	}
+
+	dmaengine_synchronize(chan);
+	ret = mxs_saif_do_trigger(substream, SNDRV_PCM_TRIGGER_STOP, dai);
+	saif->stop_pending = false;
+	return ret;
+}
+
+static int mxs_saif_trigger(struct snd_pcm_substream *substream, int cmd,
+			    struct snd_soc_dai *dai)
+{
+	struct mxs_saif *saif = snd_soc_dai_get_drvdata(dai);
+
+	if (cmd == SNDRV_PCM_TRIGGER_STOP) {
+		/* Keep supplying DMA requests until the sleepable sync_stop. */
+		saif->stop_pending = true;
+		return 0;
+	}
+	return mxs_saif_do_trigger(substream, cmd, dai);
+}
+
+static int mxs_saif_sync_stop(struct snd_soc_component *component,
+			      struct snd_pcm_substream *substream)
+{
+	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
+	struct snd_soc_dai *dai = asoc_rtd_to_cpu(rtd, 0);
+	struct mxs_saif *saif = snd_soc_dai_get_drvdata(dai);
+
+	if (!saif->stop_pending)
+		return 0;
+	return mxs_saif_finish_stop(substream, dai);
+}
+
+static int mxs_saif_hw_free(struct snd_pcm_substream *substream,
+			    struct snd_soc_dai *dai)
+{
+	/* Also terminate a paused/suspended stream before its buffer is freed. */
+	return mxs_saif_finish_stop(substream, dai);
+}
+
 #define MXS_SAIF_RATES		SNDRV_PCM_RATE_8000_192000
 #define MXS_SAIF_FORMATS \
 	(SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S20_3LE | \
@@ -641,6 +719,7 @@ static const struct snd_soc_dai_ops mxs_saif_dai_ops = {
 	.trigger = mxs_saif_trigger,
 	.prepare = mxs_saif_prepare,
 	.hw_params = mxs_saif_hw_params,
+	.hw_free = mxs_saif_hw_free,
 	.set_sysclk = mxs_saif_set_dai_sysclk,
 	.set_fmt = mxs_saif_set_dai_fmt,
 };
@@ -665,6 +744,7 @@ static struct snd_soc_dai_driver mxs_saif_dai = {
 static const struct snd_soc_component_driver mxs_saif_component = {
 	.name			= "mxs-saif",
 	.legacy_dai_naming	= 1,
+	.sync_stop		= mxs_saif_sync_stop,
 };
 
 static irqreturn_t mxs_saif_irq(int irq, void *dev_id)

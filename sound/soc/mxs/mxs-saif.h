@@ -115,6 +115,7 @@ struct mxs_saif {
 		MXS_SAIF_STATE_STOPPED,
 		MXS_SAIF_STATE_RUNNING,
 	} state;
+	bool stop_pending;
 };
 
 extern int mxs_saif_put_mclk(unsigned int saif_id);
